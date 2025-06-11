@@ -1,0 +1,261 @@
+# Location: apps/backend/main.py
+
+# --- Standard Library Imports ---
+import json
+
+# --- Third-Party Imports ---
+from fastapi import FastAPI, Depends, HTTPException
+from sqlalchemy.orm import Session
+from sqlalchemy import text
+import pandas as pd
+import geopandas as gpd
+import mapclassify
+
+# --- Local Application Imports ---
+import models
+import schemas
+from database import SessionLocal, engine
+from indicator_config import INDICATOR_METADATA, GEOGRAPHY_HIERARCHY, CHOROPLETH_PALETTE, NO_DATA_COLOR
+
+# ===================================================================
+#   FastAPI App Initialization
+# ===================================================================
+
+# This line creates the database tables based on our models.py definitions
+# if they don't already exist. It's safe to run every time.
+models.Base.metadata.create_all(bind=engine)
+
+app = FastAPI(
+    title="ECHO Data Dashboard API",
+    description="The backend API for the ECHO project, serving geographic and indicator data.",
+    version="1.0.0",
+)
+
+# ===================================================================
+#   Database Dependency
+# ===================================================================
+
+# This function is a "dependency" that provides a database session to any
+# endpoint that needs it. It ensures the database connection is always
+# properly opened and closed.
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# ===================================================================
+#   API Endpoints
+# ===================================================================
+
+@app.get("/api/metadata", response_model=schemas.MetadataResponse)
+def get_metadata(db: Session = Depends(get_db)):
+    """
+    Provides the frontend with all necessary metadata to populate
+    its dynamic filter controls and UI elements. This is the "source of truth"
+    for what data is available in the application.
+    """
+    # Query the database to find which years actually exist for each indicator
+    indicator_years_query = db.query(
+        models.ResultsData.indicator_id,
+        models.ResultsData.year
+    ).distinct().all()
+
+    # Create a mapping from indicator names (as stored in DB) to config keys
+    name_to_key_mapping = {meta["name"]: key for key, meta in INDICATOR_METADATA.items()}
+
+    # Process the query results into a more useful structure: { config_key: [years] }
+    available_data = {}
+    for indicator_name, year in indicator_years_query:
+        # Map the database indicator name to the config key
+        if indicator_name in name_to_key_mapping:
+            config_key = name_to_key_mapping[indicator_name]
+            if config_key not in available_data:
+                available_data[config_key] = []
+            available_data[config_key].append(year)
+
+    # Combine with our hardcoded metadata from the config file
+    indicator_list = []
+    for id, meta in INDICATOR_METADATA.items():
+        if id in available_data:  # Only include indicators that have data in the DB
+            indicator_list.append(schemas.IndicatorMetadata(
+                id=id,
+                name=meta["name"],
+                theme=meta["theme"],
+                description=meta["description"],
+                available_years=sorted(available_data[id], reverse=True)
+            ))
+
+    return {
+        "indicators": indicator_list,
+        "geographies": GEOGRAPHY_HIERARCHY
+    }
+
+
+@app.get(
+    "/api/map-view",
+    response_model=schemas.MapViewResponse,
+    responses={404: {"model": schemas.NoDataResponse}}
+)
+def get_map_view_data(
+    indicator: str,
+    geo_level: str,
+    year: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Provides all data required to render the main map view for a
+    single indicator and year. Performs on-the-fly data classification
+    using a quantile method to ensure a statistically sound and visually
+    coherent map.
+    """
+    # Create a mapping from indicator names (as stored in DB) to config keys
+    name_to_key_mapping = {meta["name"]: key for key, meta in INDICATOR_METADATA.items()}
+    
+    # Determine the actual indicator name to use in the database query
+    if indicator in INDICATOR_METADATA:
+        # It's a config key, use the corresponding name for DB query
+        db_indicator_name = INDICATOR_METADATA[indicator]["name"]
+    elif indicator in name_to_key_mapping:
+        # It's already a full name, use it directly
+        db_indicator_name = indicator
+    else:
+        # Invalid indicator
+        raise HTTPException(status_code=400, detail=f"Invalid indicator: {indicator}")
+    
+    # Construct a SQL query to get all geographies for the level, and LEFT JOIN
+    # the relevant indicator data. This ensures we can draw all shapes, even
+    # those with no data.
+    sql_query = text("""
+        SELECT g.geo_id, g.geometry, r.value
+        FROM geographies g
+        LEFT JOIN results_data r ON g.geo_id = r.geo_id
+                               AND r.indicator_id = :indicator
+                               AND r.year = :year
+        WHERE g.geo_level = :geo_level;
+    """)
+
+    # Execute the query and load directly into a GeoPandas GeoDataFrame
+    gdf = gpd.read_postgis(
+        sql_query,
+        db.bind,
+        params={"indicator": db_indicator_name, "year": year, "geo_level": geo_level},
+        geom_col='geometry'
+    )
+
+    if gdf.empty:
+        raise HTTPException(status_code=404, detail="No geographic data found for the selected level.")
+
+    # Classify the data into 5 bins (quintiles)
+    data_for_classification = gdf['value'].dropna()
+
+    if data_for_classification.empty or len(data_for_classification.unique()) < 5:
+        # If there's no data or not enough variation, assign all to 'no data'
+        gdf['bin'] = -1
+        legend_entries = []
+    else:
+        classifier = mapclassify.Quantiles(data_for_classification, k=5)
+        gdf['bin'] = gdf['value'].apply(lambda x: classifier.find_bin(x) if pd.notna(x) else -1)
+
+        # Create the human-readable legend
+        legend_entries = []
+        for i, a_bin in enumerate(classifier.bins):
+            lower_bound = classifier.bins[i-1] if i > 0 else data_for_classification.min()
+            label = f"{lower_bound:,.2f} - {a_bin:,.2f}"
+            legend_entries.append(schemas.LegendEntry(label=label, color=CHOROPLETH_PALETTE[i]))
+
+    legend_entries.append(schemas.LegendEntry(label="No Data", color=NO_DATA_COLOR))
+    
+    # Prepare the final payload
+    # Convert GeoDataFrame to a GeoJSON dictionary
+    geo_json_dict = json.loads(gdf[['geo_id', 'geometry']].to_json())
+
+    response_data = [
+        schemas.MapViewData(
+            geo_id=str(row.geo_id), 
+            value=None if pd.isna(row.value) else float(row.value), 
+            bin=int(row.bin)
+        )
+        for row in gdf[['geo_id', 'value', 'bin']].itertuples()
+    ]
+
+    return schemas.MapViewResponse(
+        geoJson=geo_json_dict,
+        data=response_data,
+        legend=legend_entries
+    )
+
+
+@app.post("/api/table-data")
+def get_table_data(request: schemas.TableDataRequest, db: Session = Depends(get_db)):
+    """
+    Provides custom, multi-year, multi-indicator datasets by "pivoting"
+    the data in the database. This is a powerful endpoint designed to
+    feed data tables and charts for deep analysis.
+    """
+    if not request.geo_ids or not request.indicator_ids or not request.years:
+        raise HTTPException(status_code=400, detail="geo_ids, indicator_ids, and years are all required.")
+
+    # Create a mapping from indicator names (as stored in DB) to config keys
+    name_to_key_mapping = {meta["name"]: key for key, meta in INDICATOR_METADATA.items()}
+    
+    # Dynamically and safely create the PIVOT columns for the SQL query
+    pivot_columns = []
+    valid_indicator_names = []
+    
+    for ind_id in request.indicator_ids:
+        # Check if the indicator ID matches either a config key OR a full name
+        if ind_id in INDICATOR_METADATA:
+            # It's a config key, use the corresponding name for DB query
+            indicator_name = INDICATOR_METADATA[ind_id]["name"]
+            pivot_columns.append(f"MAX(CASE WHEN indicator_id = '{indicator_name}' THEN value END) AS \"{ind_id}\"")
+            valid_indicator_names.append(indicator_name)
+        elif ind_id in name_to_key_mapping:
+            # It's a full name, use it directly for DB query
+            pivot_columns.append(f"MAX(CASE WHEN indicator_id = '{ind_id}' THEN value END) AS \"{name_to_key_mapping[ind_id]}\"")
+            valid_indicator_names.append(ind_id)
+        else:
+            # Invalid indicator - not found in config
+            continue
+
+    if not pivot_columns:
+        raise HTTPException(status_code=400, detail="Invalid indicator_ids provided.")
+
+    pivot_sql = ", ".join(pivot_columns)
+
+    # Note: Assumes geo_id is the unique key across all years in the `geographies` table.
+    # If not, the join might need adjustment.
+    sql_query = text(f"""
+        SELECT
+            r.geo_id,
+            g.geo_name,
+            r.year,
+            {pivot_sql}
+        FROM results_data r
+        JOIN geographies g ON r.geo_id = g.geo_id
+        WHERE r.geo_id IN :geo_ids
+          AND r.indicator_id IN :indicator_ids
+          AND r.year IN :years
+        GROUP BY r.geo_id, g.geo_name, r.year
+        ORDER BY g.geo_name, r.year;
+    """)
+
+    # Use pandas for efficient execution and conversion to JSON
+    df = pd.read_sql_query(
+        sql_query,
+        db.bind,
+        params={
+            "geo_ids": tuple(request.geo_ids),
+            "indicator_ids": tuple(valid_indicator_names),  # Use the validated names for DB query
+            "years": tuple(request.years),
+        }
+    )
+    
+    if df.empty:
+        return []
+
+    # Convert pandas NaN (Not a Number) to None for proper JSON nulls
+    df = df.where(pd.notna(df), None)
+
+    return df.to_dict(orient='records')

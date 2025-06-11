@@ -1,0 +1,26 @@
+# .gitignore at the root of the project
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+
+# Node
+node_modules/
+.DS_Store
+dist/
+.npm
+npm-debug.log*
+
+
+# Environment files
+.env
+.env.*
+*.env
+
+
+# IDE / Editor specific
+.vscode/
+.idea/

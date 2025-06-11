@@ -1,0 +1,15 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgis/postgis:15-3.3
+    container_name: echo_db
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: echo_data
+    ports:
+      - "5432:5432"
+    volumes:
+      - echo_postgres_data:/var/lib/postgresql/data
+volumes:
+  echo_postgres_data:

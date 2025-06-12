@@ -18,6 +18,40 @@ from database import SessionLocal, engine
 from indicator_config import INDICATOR_METADATA, GEOGRAPHY_HIERARCHY, CHOROPLETH_PALETTE, NO_DATA_COLOR
 
 # ===================================================================
+#   Utility Functions
+# ===================================================================
+
+def normalize_geo_id(geo_id: str, geo_level: str) -> str:
+    """
+    Normalize geo_id to have the correct number of digits with zero-padding.
+    
+    Args:
+        geo_id: The geographic identifier
+        geo_level: The geographic level (county, tract, school_district, sldl, sldu)
+    
+    Returns:
+        Normalized geo_id with proper zero-padding
+    """
+    # Define the expected lengths for each geography level
+    geo_id_lengths = {
+        'county': 5,
+        'tract': 11,
+        'school_district': 7,
+        'sldl': 5,  # State Legislative District Lower
+        'sldu': 5   # State Legislative District Upper
+    }
+    
+    # Get the expected length for this geography level
+    expected_length = geo_id_lengths.get(geo_level)
+    
+    if expected_length is None:
+        # If we don't have a defined length, return as-is
+        return str(geo_id)
+    
+    # Convert to string and pad with zeros on the left
+    return str(geo_id).zfill(expected_length)
+
+# ===================================================================
 #   FastAPI App Initialization
 # ===================================================================
 
@@ -56,35 +90,27 @@ def get_metadata(db: Session = Depends(get_db)):
     its dynamic filter controls and UI elements. This is the "source of truth"
     for what data is available in the application.
     """
-    # Query the database to find which years actually exist for each indicator
-    indicator_years_query = db.query(
-        models.ResultsData.indicator_id,
-        models.ResultsData.year
+    # Query the database to find which indicators actually exist
+    existing_indicators_query = db.query(
+        models.ResultsData.indicator_id
     ).distinct().all()
+    
+    existing_indicator_names = {row.indicator_id for row in existing_indicators_query}
 
     # Create a mapping from indicator names (as stored in DB) to config keys
     name_to_key_mapping = {meta["name"]: key for key, meta in INDICATOR_METADATA.items()}
 
-    # Process the query results into a more useful structure: { config_key: [years] }
-    available_data = {}
-    for indicator_name, year in indicator_years_query:
-        # Map the database indicator name to the config key
-        if indicator_name in name_to_key_mapping:
-            config_key = name_to_key_mapping[indicator_name]
-            if config_key not in available_data:
-                available_data[config_key] = []
-            available_data[config_key].append(year)
-
-    # Combine with our hardcoded metadata from the config file
+    # Build indicator list using hardcoded metadata and available years
     indicator_list = []
     for id, meta in INDICATOR_METADATA.items():
-        if id in available_data:  # Only include indicators that have data in the DB
+        # Check if this indicator exists in the database
+        if meta["name"] in existing_indicator_names:
             indicator_list.append(schemas.IndicatorMetadata(
                 id=id,
                 name=meta["name"],
                 theme=meta["theme"],
                 description=meta["description"],
-                available_years=sorted(available_data[id], reverse=True)
+                available_years=meta["available_years"]  # Use hardcoded years from config
             ))
 
     return {
@@ -147,6 +173,9 @@ def get_map_view_data(
     if gdf.empty:
         raise HTTPException(status_code=404, detail="No geographic data found for the selected level.")
 
+    # Normalize geo_ids to ensure consistent formatting
+    gdf['geo_id'] = gdf['geo_id'].apply(lambda x: normalize_geo_id(str(x), geo_level))
+
     # Classify the data into 5 bins (quintiles)
     data_for_classification = gdf['value'].dropna()
 
@@ -171,9 +200,10 @@ def get_map_view_data(
     # Convert GeoDataFrame to a GeoJSON dictionary
     geo_json_dict = json.loads(gdf[['geo_id', 'geometry']].to_json())
 
+    # Normalize geo_ids in the response data
     response_data = [
         schemas.MapViewData(
-            geo_id=str(row.geo_id), 
+            geo_id=normalize_geo_id(str(row.geo_id), geo_level), 
             value=None if pd.isna(row.value) else float(row.value), 
             bin=int(row.bin)
         )

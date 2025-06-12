@@ -41,9 +41,8 @@
 		easing: quintOut
 	});
 	
-	// Function to normalize geo_ids to ensure consistent formatting
-	function normalizeGeoId(geoId: string, geoLevel: string): string {
-		// Define the expected lengths for each geography level
+	// Function to get expected geo_id length for a geographic level
+	function getExpectedGeoIdLength(geoLevel: string): number | null {
 		const geoIdLengths: Record<string, number> = {
 			'county': 5,
 			'tract': 11,
@@ -52,10 +51,15 @@
 			'sldu': 5   // State Legislative District Upper
 		};
 		
+		return geoIdLengths[geoLevel] || null;
+	}
+
+	// Function to normalize geo_ids to ensure consistent formatting
+	function normalizeGeoId(geoId: string, geoLevel: string): string {
 		// Get the expected length for this geography level
-		const expectedLength = geoIdLengths[geoLevel];
+		const expectedLength = getExpectedGeoIdLength(geoLevel);
 		
-		if (expectedLength === undefined) {
+		if (expectedLength === null) {
 			// If we don't have a defined length, return as-is
 			return String(geoId);
 		}
@@ -114,13 +118,25 @@
 	
 	// Reactive statement to fetch data when filters change
 	$: if (browser && map && $areFiltersValid && $filters.indicator && $filters.geoLevel && $filters.year) {
-		// Ensure map is loaded before fetching data
-		if (map.loaded()) {
-			fetchMapData($filters.indicator, $filters.geoLevel, $filters.year);
-		} else {
-			map.once('load', () => {
+		// Additional validation to ensure we have valid filter values
+		const hasValidFilters = $filters.indicator && 
+								$filters.geoLevel && 
+								$filters.year && 
+								typeof $filters.indicator === 'string' && 
+								typeof $filters.geoLevel === 'string' && 
+								typeof $filters.year === 'number';
+		
+		if (hasValidFilters) {
+			// Ensure map is loaded before fetching data
+			if (map.loaded()) {
 				fetchMapData($filters.indicator, $filters.geoLevel, $filters.year);
-			});
+			} else {
+				map.once('load', () => {
+					fetchMapData($filters.indicator, $filters.geoLevel, $filters.year);
+				});
+			}
+		} else {
+			console.warn('Invalid filter values detected:', $filters);
 		}
 	}
 	
@@ -162,6 +178,27 @@
 			
 			const data = await response.json();
 			
+			// Validate that the response data is for the correct geographic level
+			if (data.geoJson?.features?.length > 0) {
+				// Check a sample of features to ensure they're for the correct geo level
+				const sampleFeatures = data.geoJson.features.slice(0, 10);
+				const expectedGeoIdLength = getExpectedGeoIdLength(geoLevel);
+				
+				let invalidFeatures = 0;
+				sampleFeatures.forEach((feature: any) => {
+					const geoId = String(feature.properties?.geo_id || '');
+					if (expectedGeoIdLength && geoId.length !== expectedGeoIdLength) {
+						invalidFeatures++;
+					}
+				});
+				
+				// If more than half the sample features have incorrect geo_id lengths, 
+				// this might indicate wrong geographic level data
+				if (invalidFeatures > sampleFeatures.length / 2) {
+					console.warn(`Potential geo level mismatch: Expected ${geoLevel} (${expectedGeoIdLength} digits), but got features with different lengths`);
+				}
+			}
+			
 			// Update debug info with response
 			debugInfo = {
 				...debugInfo,
@@ -172,7 +209,9 @@
 				sampleData: data.data?.slice(0, 5) || [],
 				sampleGeoJsonIds: data.geoJson?.features?.slice(0, 5).map((f: any) => f.properties?.geo_id) || [],
 				hasLegend: !!data.legend,
-				legendEntries: data.legend?.length || 0
+				legendEntries: data.legend?.length || 0,
+				requestedGeoLevel: geoLevel,
+				expectedGeoIdLength: getExpectedGeoIdLength(geoLevel)
 			};
 			
 			console.log('Map data received:', debugInfo);

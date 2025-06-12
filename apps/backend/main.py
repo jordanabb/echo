@@ -136,6 +136,10 @@ def get_map_view_data(
     using a quantile method to ensure a statistically sound and visually
     coherent map.
     """
+    # Validate input parameters
+    if not indicator or not geo_level or not year:
+        raise HTTPException(status_code=400, detail="indicator, geo_level, and year are all required")
+    
     # Create a mapping from indicator names (as stored in DB) to config keys
     name_to_key_mapping = {meta["name"]: key for key, meta in INDICATOR_METADATA.items()}
     
@@ -150,16 +154,36 @@ def get_map_view_data(
         # Invalid indicator
         raise HTTPException(status_code=400, detail=f"Invalid indicator: {indicator}")
     
-    # Construct a SQL query to get all geographies for the level, and LEFT JOIN
+    # First, validate that the requested geo_level exists in the database
+    geo_level_check_query = text("""
+        SELECT DISTINCT geo_level 
+        FROM geographies 
+        WHERE geo_level = :geo_level AND year = :year
+        LIMIT 1;
+    """)
+    
+    geo_level_result = db.execute(geo_level_check_query, {"geo_level": geo_level, "year": year}).fetchone()
+    if not geo_level_result:
+        raise HTTPException(status_code=404, detail=f"No geographic data found for level '{geo_level}' in year {year}")
+    
+    # Construct a SQL query to get all geographies for the EXACT level and year, and LEFT JOIN
     # the relevant indicator data. This ensures we can draw all shapes, even
-    # those with no data.
+    # those with no data. Use DISTINCT ON to handle duplicate geo_ids.
     sql_query = text("""
-        SELECT g.geo_id, g.geometry, r.value
+        SELECT DISTINCT ON (g.geo_id) 
+               g.geo_id, 
+               g.geo_level,
+               g.year as geo_year,
+               g.geometry, 
+               r.value,
+               r.year as data_year
         FROM geographies g
         LEFT JOIN results_data r ON g.geo_id = r.geo_id
                                AND r.indicator_id = :indicator
                                AND r.year = :year
-        WHERE g.geo_level = :geo_level;
+        WHERE g.geo_level = :geo_level
+          AND g.year = :year
+        ORDER BY g.geo_id, r.value DESC NULLS LAST;
     """)
 
     # Execute the query and load directly into a GeoPandas GeoDataFrame
@@ -171,11 +195,32 @@ def get_map_view_data(
     )
 
     if gdf.empty:
-        raise HTTPException(status_code=404, detail="No geographic data found for the selected level.")
+        raise HTTPException(status_code=404, detail=f"No geographic data found for level '{geo_level}' in year {year}")
+
+    # Validate that all returned data is for the correct geographic level
+    unique_geo_levels = gdf['geo_level'].unique()
+    if len(unique_geo_levels) != 1 or unique_geo_levels[0] != geo_level:
+        print(f"ERROR: Expected geo_level '{geo_level}', but got: {unique_geo_levels}")
+        raise HTTPException(status_code=500, detail=f"Data integrity error: mixed geographic levels returned")
+    
+    # Validate that all returned data is for the correct year
+    unique_geo_years = gdf['geo_year'].unique()
+    if len(unique_geo_years) != 1 or unique_geo_years[0] != year:
+        print(f"ERROR: Expected year {year}, but got geo years: {unique_geo_years}")
+        raise HTTPException(status_code=500, detail=f"Data integrity error: mixed years returned")
+
+    # Log sample data for debugging (first 3 records only)
+    sample_data = gdf[['geo_id', 'geo_level', 'geo_year', 'value', 'data_year']].head(3)
+    print(f"API Debug - Requested: indicator={indicator}, geo_level={geo_level}, year={year}")
+    print(f"API Debug - Returned {len(gdf)} features for geo_level='{unique_geo_levels[0]}', year={unique_geo_years[0]}")
+    print(f"API Debug - Sample data:\n{sample_data.to_string()}")
 
     # Normalize geo_ids to ensure consistent formatting
     gdf['geo_id'] = gdf['geo_id'].apply(lambda x: normalize_geo_id(str(x), geo_level))
 
+    # Convert string values to numeric (fix for data type issue)
+    gdf['value'] = pd.to_numeric(gdf['value'], errors='coerce')
+    
     # Classify the data into 5 bins (quintiles)
     data_for_classification = gdf['value'].dropna()
 
@@ -197,7 +242,7 @@ def get_map_view_data(
     legend_entries.append(schemas.LegendEntry(label="No Data", color=NO_DATA_COLOR))
     
     # Prepare the final payload
-    # Convert GeoDataFrame to a GeoJSON dictionary
+    # Convert GeoDataFrame to a GeoJSON dictionary (exclude debug columns)
     geo_json_dict = json.loads(gdf[['geo_id', 'geometry']].to_json())
 
     # Normalize geo_ids in the response data
@@ -209,6 +254,9 @@ def get_map_view_data(
         )
         for row in gdf[['geo_id', 'value', 'bin']].itertuples()
     ]
+
+    # Final validation: ensure response data only contains the requested geo_level
+    print(f"API Debug - Returning {len(response_data)} data points and {len(geo_json_dict.get('features', []))} GeoJSON features")
 
     return schemas.MapViewResponse(
         geoJson=geo_json_dict,

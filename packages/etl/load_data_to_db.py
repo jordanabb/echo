@@ -37,7 +37,8 @@ def load_data():
         # NOTE: We read the CSV file since no GeoJSON file is available.
         # This will create a table without geometry data.
         logging.info(f"Reading geography data from '{GEOGRAPHIES_FILE}'...")
-        geographies_df = pd.read_csv(GEOGRAPHIES_FILE)
+        # Explicitly read geo_id as string to preserve leading zeros
+        geographies_df = pd.read_csv(GEOGRAPHIES_FILE, dtype={'geo_id': str})
         
         # This is a small but important check. The geo_level column might be read
         # as a generic 'object'. We need to ensure it's treated as text for the ENUM type.
@@ -52,29 +53,50 @@ def load_data():
             conn.commit()
         
         logging.info(f"Loading {len(geographies_df)} geographies to 'geographies' table...")
+        # Ensure geo_id is treated as text to preserve leading zeros
+        from sqlalchemy import String, Integer, Text
+        dtype_dict = {
+            'geo_id': String(20),  # Store as varchar to preserve leading zeros
+            'geo_name': Text,
+            'geo_level': String(50),
+            'year': Integer
+        }
+        
         # Use to_sql to load the data. Since we dropped the table, we can use 'replace'
         geographies_df.to_sql(
             'geographies',
             engine,
             if_exists='replace',
-            index=False
+            index=False,
+            dtype=dtype_dict
         )
         logging.info("-> Geographies table loaded successfully.")
         
         # --- Load Results Data ---
         logging.info(f"Reading results data from '{RESULTS_FILE}'...")
-        results_df = pd.read_csv(RESULTS_FILE)
+        # Explicitly read geo_id as string to preserve leading zeros
+        results_df = pd.read_csv(RESULTS_FILE, dtype={'geo_id': str})
         
         # Same check for the geo_level column here before loading
         if 'geo_level' in results_df.columns:
             results_df['geo_level'] = results_df['geo_level'].astype(str)
 
         logging.info(f"Loading {len(results_df)} data points to 'results_data' table...")
+        # Ensure geo_id is treated as text in results table too
+        results_dtype_dict = {
+            'geo_id': String(20),  # Store as varchar to preserve leading zeros
+            'geo_level': String(50),
+            'year': Integer,
+            'indicator_id': Text,
+            'value': String(50)  # Keep as string to handle various data types
+        }
+        
         results_df.to_sql(
             'results_data',
             engine,
             if_exists='replace',
             index=False,
+            dtype=results_dtype_dict,
             chunksize=20000 # Breaks the load into smaller chunks to save memory
         )
         logging.info("-> Results_data table loaded successfully.")

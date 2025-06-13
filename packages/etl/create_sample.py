@@ -1,5 +1,5 @@
 import pandas as pd
-import geopandas as gpd
+import json
 import os
 import logging
 from functools import reduce
@@ -11,9 +11,9 @@ from functools import reduce
 
 # --- 2. SCRIPT SETUP ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-SAMPLE_GEO_DIR = "packages/etl/data_sample/"
+SAMPLE_GEO_DIR = "data_sample/"
 NATIONAL_DATA_SOURCE_DIR = "/Users/jordanabbott/Downloads/"
-OUTPUT_DIR = "packages/etl/clean_output/"
+OUTPUT_DIR = "clean_output/"
 
 
 # --- 3. DATA DEFINITIONS - Define all possible files here ---
@@ -22,23 +22,23 @@ OUTPUT_DIR = "packages/etl/clean_output/"
 # The 'id_col_options' list lets the script search for multiple possible ID column names.
 GEOGRAPHY_FILE_MAP = {
     'county': {
-        'filename': 'sample_geos_counties.json', 
+        'filename': 'county_geographies_sample.geojson', 
         'geo_level_val': 'county',
         'id_col_options': ['GEOID', 'geoid']
     },
     'school_district': {
-        'filename': 'sample_geos_sd.json',
+        'filename': 'school_district_geographies_sample.geojson',
         'geo_level_val': 'school_district',
         'id_col_options': ['GEOID', 'geoid', 'NCESID', 'ncesid']
     },
     'legislative': {
-        'filename': 'sample_geos_leg_dist.json',
+        'filename': 'legislative_geographies_sample.geojson',
         'id_col_options': ['GEOID', 'geoid', 'LEGID', 'legid', 'Legid']
         # 'geo_level_val' is not needed here because it's derived from the 'house' column
     },
     'tract': {
-        'filename': 'sample_geos_tracts.json', 
-        'geo_level_val': 'county',
+        'filename': 'tract_geographies_sample.geojson', 
+        'geo_level_val': 'tract',
         'id_col_options': ['GEOID', 'geoid']
     }
 
@@ -112,6 +112,27 @@ def find_and_rename_column(df, options, target_name):
             return True
     return False
 
+def format_geoid_by_type(geo_id, geo_level):
+    """Format GEOID with proper zero-padding based on geography type."""
+    geo_id_str = str(geo_id).strip()
+    
+    # Remove any decimal points if the ID was read as a float
+    if '.' in geo_id_str:
+        geo_id_str = geo_id_str.split('.')[0]
+    
+    if geo_level in ['county', 'sldu', 'sldl']:
+        # Counties and legislative districts should be 5 digits
+        return geo_id_str.zfill(5)
+    elif geo_level == 'school_district':
+        # School districts should be 7 digits
+        return geo_id_str.zfill(7)
+    elif geo_level == 'tract':
+        # Census tracts should be 11 digits
+        return geo_id_str.zfill(11)
+    else:
+        # Default: return as string without modification
+        return geo_id_str
+
 # --- Processing Functions ---
 def process_all_geographies():
     """Reads all geography files, standardizes them, and combines them."""
@@ -121,19 +142,40 @@ def process_all_geographies():
     for geo_type, config in GEOGRAPHY_FILE_MAP.items():
         filepath = os.path.join(SAMPLE_GEO_DIR, config['filename'])
         try:
-            gdf = gpd.read_file(filepath)
+            # Read GeoJSON file as regular JSON
+            with open(filepath, 'r') as f:
+                geojson_data = json.load(f)
             
-            if not find_and_rename_column(gdf, config['id_col_options'], 'geo_id'):
-                raise ValueError(f"No valid ID column found in {config['filename']}")
-            find_and_rename_column(gdf, ['NAME', 'name'], 'geo_name')
-            find_and_rename_column(gdf, ['YEAR', 'year', 'Year'], 'year')
+            # Extract properties from features
+            features_data = []
+            for feature in geojson_data['features']:
+                properties = feature['properties']
+                features_data.append(properties)
+            
+            # Convert to DataFrame
+            df = pd.DataFrame(features_data)
+            
+            # Check if columns are already properly named, if not try to rename them
+            if 'geo_id' not in df.columns:
+                if not find_and_rename_column(df, config['id_col_options'], 'geo_id'):
+                    raise ValueError(f"No valid ID column found in {config['filename']}")
+            
+            if 'geo_name' not in df.columns:
+                find_and_rename_column(df, ['NAME', 'name'], 'geo_name')
+            
+            if 'year' not in df.columns:
+                find_and_rename_column(df, ['YEAR', 'year', 'Year'], 'year')
 
-            if 'house' in gdf.columns:
-                gdf['geo_level'] = gdf['house'].apply(lambda h: 'sldu' if str(h).lower() == 'upper' else 'sldl')
-            else:
-                gdf['geo_level'] = geo_type
+            if 'geo_level' not in df.columns:
+                if 'house' in df.columns:
+                    df['geo_level'] = df['house'].apply(lambda h: 'sldu' if str(h).lower() == 'upper' else 'sldl')
+                else:
+                    df['geo_level'] = geo_type
             
-            all_geos_list.append(gdf)
+            # Apply GEOID formatting based on geography type
+            df['geo_id'] = df.apply(lambda row: format_geoid_by_type(row['geo_id'], row['geo_level']), axis=1)
+            
+            all_geos_list.append(df)
         except Exception as e:
             logging.error(f"Failed to process geography file {filepath}. Error: {e}")
             continue
@@ -142,14 +184,18 @@ def process_all_geographies():
         logging.error("No geography files could be processed. Exiting.")
         return None
         
-    master_geographies_gdf = pd.concat(all_geos_list, ignore_index=True)
+    master_geographies_df = pd.concat(all_geos_list, ignore_index=True)
     
     # Select and reorder final columns, dropping extras like 'house'
-    final_geo_cols = ['geo_id', 'geo_name', 'geo_level', 'year', 'geometry']
-    master_geographies_gdf = master_geographies_gdf[final_geo_cols]
+    final_geo_cols = ['geo_id', 'geo_name', 'geo_level', 'year']
+    # Add year column if it doesn't exist
+    if 'year' not in master_geographies_df.columns:
+        master_geographies_df['year'] = 2021  # Default year
+    
+    master_geographies_df = master_geographies_df[final_geo_cols]
 
-    logging.info(f"Successfully combined {len(master_geographies_gdf)} total geographies.")
-    return master_geographies_gdf
+    logging.info(f"Successfully combined {len(master_geographies_df)} total geographies.")
+    return master_geographies_df
 
 def process_and_merge_all_indicators(master_geographies_gdf):
     """Filters all national CSVs using the master geography list, then merges them."""
@@ -175,8 +221,12 @@ def process_and_merge_all_indicators(master_geographies_gdf):
                 filepath = os.path.join(NATIONAL_DATA_SOURCE_DIR, file_info['filename'])
                 try:
                     df = pd.read_csv(filepath, low_memory=False)
+                    # Drop any unnamed index columns that might cause merge conflicts
+                    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+                    
                     if find_and_rename_column(df, file_info['id_col_options'], 'geo_id') and find_and_rename_column(df, ['year', 'YEAR', 'Year'], 'year'):
-                        df['geo_id'] = df['geo_id'].astype(str)
+                        # Apply GEOID formatting based on geography type
+                        df['geo_id'] = df['geo_id'].apply(lambda x: format_geoid_by_type(x, geo_type))
                         df_filtered = df[df['geo_id'].isin(valid_geo_ids_for_type)].copy()
                         if not df_filtered.empty:
                             list_of_dfs_for_type.append(df_filtered)
@@ -234,9 +284,9 @@ if __name__ == "__main__":
 
             # 4. Save the final, clean files
             
-            # For the geographies, we don't need the geometry in the final CSV, just the info
+            # For the geographies, save the info
             geographies_output_path = os.path.join(OUTPUT_DIR, "geographies.csv")
-            master_geos.drop(columns=['geometry']).to_csv(geographies_output_path, index=False)
+            master_geos.to_csv(geographies_output_path, index=False)
             logging.info(f"✅ Successfully saved clean geographies info to '{geographies_output_path}'")
 
             # For the results data

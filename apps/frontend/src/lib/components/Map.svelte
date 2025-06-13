@@ -1,7 +1,13 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { browser } from '$app/environment';
-	import { filters, areFiltersValid } from '$lib/stores/filters';
+	import { 
+		unifiedFilters,
+		currentGeoLevel,
+		currentPrimaryIndicator,
+		currentPrimaryYear,
+		areFiltersValid
+	} from '$lib/stores/unifiedFilters';
 	import { crossfade } from 'svelte/transition';
 	import { quintOut } from 'svelte/easing';
 	import Legend from './Legend.svelte';
@@ -92,8 +98,8 @@
 				map.on('load', () => {
 					console.log('Map loaded successfully');
 					// Trigger initial data fetch if filters are valid
-					if ($areFiltersValid && $filters.indicator && $filters.geoLevel && $filters.year) {
-						fetchMapData($filters.indicator, $filters.geoLevel, $filters.year);
+					if ($areFiltersValid && $currentPrimaryIndicator && $currentGeoLevel && $currentPrimaryYear) {
+						fetchMapData($currentPrimaryIndicator, $currentGeoLevel, $currentPrimaryYear);
 					}
 				});
 				
@@ -117,26 +123,30 @@
 	});
 	
 	// Reactive statement to fetch data when filters change
-	$: if (browser && map && $areFiltersValid && $filters.indicator && $filters.geoLevel && $filters.year) {
+	$: if (browser && map && $areFiltersValid && $currentPrimaryIndicator && $currentGeoLevel && $currentPrimaryYear) {
 		// Additional validation to ensure we have valid filter values
-		const hasValidFilters = $filters.indicator && 
-								$filters.geoLevel && 
-								$filters.year && 
-								typeof $filters.indicator === 'string' && 
-								typeof $filters.geoLevel === 'string' && 
-								typeof $filters.year === 'number';
+		const hasValidFilters = $currentPrimaryIndicator && 
+								$currentGeoLevel && 
+								$currentPrimaryYear && 
+								typeof $currentPrimaryIndicator === 'string' && 
+								typeof $currentGeoLevel === 'string' && 
+								typeof $currentPrimaryYear === 'number';
 		
 		if (hasValidFilters) {
 			// Ensure map is loaded before fetching data
 			if (map.loaded()) {
-				fetchMapData($filters.indicator, $filters.geoLevel, $filters.year);
+				fetchMapData($currentPrimaryIndicator, $currentGeoLevel, $currentPrimaryYear);
 			} else {
 				map.once('load', () => {
-					fetchMapData($filters.indicator, $filters.geoLevel, $filters.year);
+					fetchMapData($currentPrimaryIndicator, $currentGeoLevel, $currentPrimaryYear);
 				});
 			}
 		} else {
-			console.warn('Invalid filter values detected:', $filters);
+			console.warn('Invalid filter values detected:', { 
+				indicator: $currentPrimaryIndicator, 
+				geoLevel: $currentGeoLevel, 
+				year: $currentPrimaryYear 
+			});
 		}
 	}
 	
@@ -277,7 +287,7 @@
 				...data.geoJson,
 				features: data.geoJson.features.map((feature: any) => {
 					// Normalize geo_id to ensure consistent formatting
-					const normalizedGeoId = normalizeGeoId(String(feature.properties.geo_id), $filters.geoLevel || '');
+					const normalizedGeoId = normalizeGeoId(String(feature.properties.geo_id), $currentGeoLevel || '');
 					const indicatorData = dataLookup.get(normalizedGeoId);
 					
 					if (indicatorData) {
@@ -617,8 +627,8 @@
 					class="mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
 					on:click={() => {
 						error = null;
-						if ($areFiltersValid && $filters.indicator && $filters.geoLevel && $filters.year) {
-							fetchMapData($filters.indicator, $filters.geoLevel, $filters.year);
+						if ($areFiltersValid && $currentPrimaryIndicator && $currentGeoLevel && $currentPrimaryYear) {
+							fetchMapData($currentPrimaryIndicator, $currentGeoLevel, $currentPrimaryYear);
 						}
 					}}
 				>

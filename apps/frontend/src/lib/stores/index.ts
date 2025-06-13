@@ -36,3 +36,4 @@ export const modalState = writable<{
 // Export metadata and filter stores
 export * from './metadata';
 export * from './filters';
+export * from './analysisFilters';

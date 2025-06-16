@@ -128,6 +128,7 @@ def get_map_view_data(
     indicator: str,
     geo_level: str,
     year: int,
+    state_filter: str = None,
     db: Session = Depends(get_db)
 ):
     """
@@ -169,7 +170,16 @@ def get_map_view_data(
     # Construct a SQL query to get all geographies for the EXACT level and year, and LEFT JOIN
     # the relevant indicator data. This ensures we can draw all shapes, even
     # those with no data. Use DISTINCT ON to handle duplicate geo_ids.
-    sql_query = text("""
+    # Add state filtering if state_filter is provided
+    state_filter_clause = ""
+    query_params = {"indicator": db_indicator_name, "year": year, "geo_level": geo_level}
+    
+    if state_filter:
+        # Filter by state using the first 2 digits of geo_id (state FIPS code)
+        state_filter_clause = "AND LEFT(g.geo_id, 2) = :state_filter"
+        query_params["state_filter"] = state_filter
+    
+    sql_query = text(f"""
         SELECT DISTINCT ON (g.geo_id) 
                g.geo_id, 
                g.geo_level,
@@ -183,6 +193,7 @@ def get_map_view_data(
                                AND r.year = :year
         WHERE g.geo_level = :geo_level
           AND g.year = :year
+          {state_filter_clause}
         ORDER BY g.geo_id, r.value DESC NULLS LAST;
     """)
 
@@ -190,7 +201,7 @@ def get_map_view_data(
     gdf = gpd.read_postgis(
         sql_query,
         db.bind,
-        params={"indicator": db_indicator_name, "year": year, "geo_level": geo_level},
+        params=query_params,
         geom_col='geometry'
     )
 

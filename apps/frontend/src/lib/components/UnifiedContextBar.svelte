@@ -3,10 +3,13 @@
 	import { slide } from 'svelte/transition';
 	import { quintOut } from 'svelte/easing';
 	import Button from './Button.svelte';
+	import YearSelector from './YearSelector.svelte';
 	import { 
 		unifiedFilters,
 		currentGeoLevel,
+		currentGeoFilter,
 		currentPrimaryYear,
+		currentYears,
 		currentPrimaryIndicator,
 		currentSelectedIndicators,
 		selectedIndicatorCount,
@@ -16,6 +19,7 @@
 		resetFilters,
 		toggleIndicator,
 		clearIndicators,
+		setYears,
 		initializeUnifiedFilters
 	} from '../stores/unifiedFilters';
 	import { 
@@ -27,6 +31,7 @@
 		initializeMetadata
 	} from '../stores/metadata';
 	import { showVariableSelector } from '../stores/interactiveSteps';
+	import { US_STATES, getStateNameByCode } from '../constants/states';
 
 	// Component state
 	let showAdvanced = false;
@@ -83,7 +88,20 @@
 	function handleGeoLevelChange(event: Event) {
 		const target = event.target as HTMLSelectElement;
 		const geoLevel = target.value || null;
-		updateFilter('geoLevel', geoLevel);
+		// Clear state filter when geography level changes
+		updateFilters({
+			geoLevel: geoLevel,
+			geoFilter: null
+		});
+	}
+
+	/**
+	 * Handles state filter change
+	 */
+	function handleStateFilterChange(event: Event) {
+		const target = event.target as HTMLSelectElement;
+		const stateCode = target.value || null;
+		updateFilter('geoFilter', stateCode);
 	}
 
 	/**
@@ -199,19 +217,32 @@
 					</select>
 				</div>
 
+				<!-- State Filter (Optional) -->
+				{#if $currentGeoLevel}
+					<div class="flex items-center space-x-2">
+						<span class="text-2xl">🗺️</span>
+						<select
+							class="text-sm font-medium bg-transparent border-none focus:ring-2 focus:ring-primary-500 rounded px-2 py-1 cursor-pointer hover:bg-neutral-50 transition-colors"
+							value={$currentGeoFilter || ''}
+							on:change={handleStateFilterChange}
+						>
+							<option value="">All States</option>
+							{#each US_STATES as state}
+								<option value={state.code}>{state.name}</option>
+							{/each}
+						</select>
+					</div>
+				{/if}
+
 				<!-- Year -->
 				<div class="flex items-center space-x-2">
 					<span class="text-2xl">📅</span>
-					<select
-						class="text-sm font-medium bg-transparent border-none focus:ring-2 focus:ring-primary-500 rounded px-2 py-1 cursor-pointer hover:bg-neutral-50 transition-colors"
-						value={$currentPrimaryYear || ''}
-						on:change={handleYearChange}
-					>
-						<option value="">Select year...</option>
-						{#each availableYears as year}
-							<option value={year}>{year}</option>
-						{/each}
-					</select>
+					<YearSelector
+						selectedYears={$currentYears}
+						mode="dropdown"
+						placeholder="Select years..."
+						on:change={(event) => setYears(event.detail.selectedYears)}
+					/>
 				</div>
 
 				<!-- Variables -->
@@ -279,6 +310,9 @@
 						</label>
 						<div class="text-xs text-neutral-600 space-y-1">
 							<div><strong>Geography:</strong> {getGeoDisplayName($currentGeoLevel)}</div>
+							{#if $currentGeoFilter}
+								<div><strong>State:</strong> {getStateNameByCode($currentGeoFilter) || $currentGeoFilter}</div>
+							{/if}
 							<div><strong>Year:</strong> {$currentPrimaryYear || 'Not selected'}</div>
 							<div><strong>Variables:</strong> {$selectedIndicatorCount} selected</div>
 						</div>
@@ -360,6 +394,15 @@
 							</svg>
 						</button>
 					{/if}
+				</div>
+
+				<!-- Year Selection -->
+				<div class="mt-4">
+					<YearSelector
+						selectedYears={$currentYears}
+						mode="inline"
+						on:change={(event) => setYears(event.detail.selectedYears)}
+					/>
 				</div>
 
 				<!-- Theme Controls -->
@@ -466,11 +509,18 @@
 			<!-- Modal Footer -->
 			<div class="p-6 border-t border-neutral-200 bg-neutral-50">
 				<div class="flex items-center justify-between">
-					<div class="text-sm text-neutral-600">
+					<div class="text-sm text-neutral-600 space-y-1">
 						{#if $selectedIndicatorCount > 0}
-							<strong>{$selectedIndicatorCount}</strong> variable{$selectedIndicatorCount === 1 ? '' : 's'} selected for analysis
+							<div>
+								<strong>{$selectedIndicatorCount}</strong> variable{$selectedIndicatorCount === 1 ? '' : 's'} selected for analysis
+							</div>
 						{:else}
-							Select variables to enable analysis features
+							<div>Select variables to enable analysis features</div>
+						{/if}
+						{#if $currentYears.length > 0}
+							<div>
+								<strong>{$currentYears.length}</strong> year{$currentYears.length === 1 ? '' : 's'} selected: {$currentYears.sort((a, b) => a - b).join(', ')}
+							</div>
 						{/if}
 					</div>
 					<Button variant="primary" on:click={() => showVariableSelector.set(false)}>

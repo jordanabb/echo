@@ -270,6 +270,92 @@ async function clearIndicators(): Promise<void> {
 }
 
 /**
+ * Adds a year to the selection
+ */
+async function addYear(year: number): Promise<void> {
+	const currentFilters = get(unifiedFiltersStore);
+	if (!currentFilters.years.includes(year)) {
+		const newYears = [...currentFilters.years, year].sort((a, b) => a - b);
+		await updateFilter('years', newYears);
+		
+		// Update primary year if not set or if this is the only year
+		if (!currentFilters.primaryYear || newYears.length === 1) {
+			await updateFilter('primaryYear', year);
+		}
+	}
+}
+
+/**
+ * Removes a year from the selection
+ */
+async function removeYear(year: number): Promise<void> {
+	const currentFilters = get(unifiedFiltersStore);
+	const newYears = currentFilters.years.filter(y => y !== year);
+	
+	// Ensure at least one year is always selected
+	if (newYears.length === 0) {
+		const $latestYear = get(latestYear);
+		const fallbackYear = $latestYear || DEFAULT_UNIFIED_FILTERS.primaryYear!;
+		await updateFilters({
+			years: [fallbackYear],
+			primaryYear: fallbackYear
+		});
+	} else {
+		await updateFilter('years', newYears);
+		
+		// Update primary year if the removed year was the primary year
+		if (currentFilters.primaryYear === year) {
+			const newPrimaryYear = Math.max(...newYears);
+			await updateFilter('primaryYear', newPrimaryYear);
+		}
+	}
+}
+
+/**
+ * Toggles a year in the selection
+ */
+async function toggleYear(year: number): Promise<void> {
+	const currentFilters = get(unifiedFiltersStore);
+	if (currentFilters.years.includes(year)) {
+		await removeYear(year);
+	} else {
+		await addYear(year);
+	}
+}
+
+/**
+ * Sets the years array directly
+ */
+async function setYears(years: number[]): Promise<void> {
+	// Ensure at least one year is provided
+	if (years.length === 0) {
+		const $latestYear = get(latestYear);
+		years = [$latestYear || DEFAULT_UNIFIED_FILTERS.primaryYear!];
+	}
+	
+	const sortedYears = [...years].sort((a, b) => a - b);
+	const primaryYear = Math.max(...sortedYears);
+	
+	await updateFilters({
+		years: sortedYears,
+		primaryYear: primaryYear
+	});
+}
+
+/**
+ * Clears all years and sets to default
+ */
+async function clearYears(): Promise<void> {
+	const $latestYear = get(latestYear);
+	const defaultYear = $latestYear || DEFAULT_UNIFIED_FILTERS.primaryYear!;
+	
+	await updateFilters({
+		years: [defaultYear],
+		primaryYear: defaultYear
+	});
+}
+
+/**
  * Resets filters to defaults
  */
 async function resetFilters(): Promise<void> {
@@ -321,6 +407,29 @@ const currentPrimaryIndicator: Readable<string | null> = derived(unifiedFilters,
 const currentPrimaryYear: Readable<number | null> = derived(unifiedFilters, ($filters) => $filters.primaryYear);
 const currentYears: Readable<number[]> = derived(unifiedFilters, ($filters) => $filters.years);
 const currentSelectedIndicators: Readable<string[]> = derived(unifiedFilters, ($filters) => $filters.selectedIndicators);
+
+// Map-specific display stores (separate from selection arrays)
+const currentMapDisplayYear: Readable<number | null> = derived(
+	[currentYears, currentPrimaryYear],
+	([$years, $primaryYear]) => {
+		// Use the most recent year from selected years, fallback to primary year
+		if ($years.length > 0) {
+			return Math.max(...$years);
+		}
+		return $primaryYear;
+	}
+);
+
+const currentMapDisplayIndicator: Readable<string | null> = derived(
+	[currentSelectedIndicators, currentPrimaryIndicator],
+	([$selectedIndicators, $primaryIndicator]) => {
+		// Use first selected indicator, fallback to primary indicator
+		if ($selectedIndicators.length > 0) {
+			return $selectedIndicators[0];
+		}
+		return $primaryIndicator;
+	}
+);
 
 // Derived store for selected indicators with metadata
 const selectedIndicatorsWithMetadata: Readable<IndicatorMetadata[]> = derived(
@@ -476,6 +585,10 @@ export {
 	currentYears,
 	currentSelectedIndicators,
 	
+	// Map-specific display stores
+	currentMapDisplayYear,
+	currentMapDisplayIndicator,
+	
 	// Derived stores
 	selectedIndicatorsWithMetadata,
 	selectedIndicatorCount,
@@ -493,6 +606,11 @@ export {
 	removeIndicator,
 	toggleIndicator,
 	clearIndicators,
+	addYear,
+	removeYear,
+	toggleYear,
+	setYears,
+	clearYears,
 	resetFilters,
 	applyDefaultFilters,
 	

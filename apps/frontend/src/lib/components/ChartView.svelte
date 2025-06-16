@@ -8,12 +8,15 @@
 		currentYears,
 		currentSelectedIndicators,
 		selectedIndicatorsWithMetadata,
-		isAnalysisReady
+		isAnalysisReady,
+		setYears
 	} from '$lib/stores/unifiedFilters';
 	import { crossfade } from 'svelte/transition';
 	import { quintOut } from 'svelte/easing';
 	import Card from './Card.svelte';
 	import Button from './Button.svelte';
+	import GeographicUnitSelector from './GeographicUnitSelector.svelte';
+	import YearSelector from './YearSelector.svelte';
 	import Chart from 'chart.js/auto';
 	import 'chartjs-adapter-date-fns';
 	
@@ -60,11 +63,10 @@
 		},
 		{
 			id: 'pie',
-			title: 'Show Composition of a Whole',
-			description: 'Display how parts contribute to the total (coming soon)',
+			title: 'Show Composition Breakdowns',
+			description: 'Display revenue sources, student demographics, or community demographics as parts of a whole',
 			icon: '🥧',
-			useCase: 'Pie Chart',
-			disabled: true
+			useCase: 'Pie Chart'
 		}
 	];
 	
@@ -81,6 +83,19 @@
 	let colorVariable: string = '';
 	let selectedYear: number | null = null;
 	let selectedGeographies: string[] = [];
+	
+	// Pie chart specific configuration
+	type PieChartType = 'revenue' | 'student_demographics' | 'community_demographics';
+	let selectedPieChartType: PieChartType | null = null;
+	
+	// Search functionality for scatter plot
+	let searchTerm: string = '';
+	let highlightedGeoId: string | null = null;
+	let availableGeoUnitsForSearch: {geo_id: string, geo_name: string}[] = [];
+	
+	// Geographic unit selection for line charts
+	let availableGeoUnits: {geo_id: string, geo_name: string}[] = [];
+	let selectedGeoUnits: string[] = [];
 	
 	// Available variables for chart configuration
 	let availableVariables: string[] = [];
@@ -118,6 +133,9 @@
 		colorVariable = '';
 		selectedYear = null;
 		selectedGeographies = [];
+		selectedGeoUnits = [];
+		availableGeoUnits = [];
+		selectedPieChartType = null;
 		
 		// Set default configurations based on chart type
 		if (chartType === 'bar' && availableVariables.length > 0) {
@@ -127,13 +145,24 @@
 			xAxisVariable = availableVariables[0];
 			yAxisVariable = availableVariables[1];
 		} else if (chartType === 'line' && availableVariables.length > 0) {
+			// For line charts, always use year as X-axis
 			xAxisVariable = 'year';
 			yAxisVariable = availableVariables[0];
+		} else if (chartType === 'pie') {
+			// For pie charts, set default to revenue breakdown
+			selectedPieChartType = 'revenue';
 		}
 		
-		// Set default year if available
-		if (availableYears.length > 0) {
-			selectedYear = availableYears[availableYears.length - 1]; // Latest year
+		// Set default year if available (not needed for line charts since they use all years)
+		if (chartType !== 'line') {
+			if (chartType === 'pie') {
+				// For pie charts, always default to 2022 if no year is available
+				selectedYear = 2022;
+				// Update available years immediately for pie charts
+				updateAvailableOptions();
+			} else if (availableYears.length > 0) {
+				selectedYear = availableYears[availableYears.length - 1]; // Latest year
+			}
 		}
 	}
 	
@@ -147,9 +176,12 @@
 	// Function to fetch all geo_ids for a given geography level and year
 	async function fetchGeoIds(geoLevel: string, year: number): Promise<string[]> {
 		try {
+			// For pie charts, if no geo level is set, default to counties
+			const effectiveGeoLevel = geoLevel || 'counties';
+			
 			const params = new URLSearchParams({
 				indicator: 'total_population', // Use a common indicator to get all geo_ids
-				geo_level: geoLevel,
+				geo_level: effectiveGeoLevel,
 				year: year.toString()
 			});
 			
@@ -169,9 +201,33 @@
 		}
 	}
 
+	// Function to get required indicators for pie chart types
+	function getPieChartIndicators(pieChartType: PieChartType): string[] {
+		switch (pieChartType) {
+			case 'revenue':
+				return ['federal_revenue_pp', 'state_revenue_pp', 'local_revenue_pp'];
+			case 'student_demographics':
+				return ['asian_students', 'black_students', 'latino_students', 'native_students', 'pacific_islander_students', 'two_or_more_races_students'];
+			case 'community_demographics':
+				return ['asian_population', 'black_population', 'native_population', 'pacific_islander_population', 'two_or_more_races_population', 'other_race_population'];
+			default:
+				return [];
+		}
+	}
+
 	// Function to fetch chart data
 	async function fetchChartData() {
-		if (!$isAnalysisReady || !selectedChartType) {
+		if (!selectedChartType) {
+			return;
+		}
+		
+		// For pie charts, we don't need isAnalysisReady since we fetch specific indicators
+		if (selectedChartType !== 'pie' && !$isAnalysisReady) {
+			return;
+		}
+		
+		// Additional validation for pie charts
+		if (selectedChartType === 'pie' && (!selectedPieChartType || !selectedYear)) {
 			return;
 		}
 		
@@ -182,9 +238,27 @@
 			// First, get all geo_ids for the selected geography level and years
 			const allGeoIds = new Set<string>();
 			
+			// For pie charts, ensure we have a valid year
+			const yearsToFetch = selectedChartType === 'pie' && selectedYear 
+				? [selectedYear] 
+				: (selectedYear ? [selectedYear] : $currentYears);
+			
+			// Ensure we have at least one year
+			if (yearsToFetch.length === 0) {
+				// For pie charts, default to 2022 if no year is available
+				if (selectedChartType === 'pie') {
+					yearsToFetch.push(2022);
+				} else {
+					throw new Error('No year selected for chart generation');
+				}
+			}
+			
 			// Fetch geo_ids for each year (in case different years have different geographies)
-			for (const year of selectedYear ? [selectedYear] : $currentYears) {
-				const yearGeoIds = await fetchGeoIds($currentGeoLevel, year);
+			// For pie charts, use a default geo level if none is selected
+			const geoLevelToUse = selectedChartType === 'pie' && !$currentGeoLevel ? 'counties' : $currentGeoLevel;
+			
+			for (const year of yearsToFetch) {
+				const yearGeoIds = await fetchGeoIds(geoLevelToUse, year);
 				yearGeoIds.forEach(id => allGeoIds.add(id));
 			}
 			
@@ -192,11 +266,23 @@
 				throw new Error('No geographic areas found for the selected filters');
 			}
 			
+			// Determine which indicators to fetch
+			let indicatorIds: string[];
+			if (selectedChartType === 'pie' && selectedPieChartType) {
+				indicatorIds = getPieChartIndicators(selectedPieChartType);
+			} else {
+				indicatorIds = $currentSelectedIndicators;
+			}
+			
+			if (indicatorIds.length === 0) {
+				throw new Error('No indicators available for the selected chart configuration');
+			}
+			
 			// Prepare the request payload for table data API
 			const requestPayload = {
 				geo_ids: Array.from(allGeoIds),
-				indicator_ids: $currentSelectedIndicators,
-				years: selectedYear ? [selectedYear] : $currentYears
+				indicator_ids: indicatorIds,
+				years: selectedChartType === 'pie' ? [selectedYear || 2022] : (selectedYear ? [selectedYear] : $currentYears)
 			};
 			
 			console.log('Fetching chart data with payload:', requestPayload);
@@ -226,8 +312,22 @@
 				sampleRow: data[0],
 				columns: Object.keys(data[0] || {}),
 				xAxisVariable,
-				yAxisVariable
+				yAxisVariable,
+				selectedPieChartType
 			});
+			
+			// Extract available geographic units from the data
+			if (selectedChartType === 'line') {
+				const uniqueGeoUnits = [...new Map(
+					data.map(row => [row.geo_id, {geo_id: row.geo_id, geo_name: row.geo_name}])
+				).values()];
+				availableGeoUnits = uniqueGeoUnits.sort((a, b) => a.geo_name.localeCompare(b.geo_name));
+				
+				// If no units are selected yet, select all by default
+				if (selectedGeoUnits.length === 0) {
+					selectedGeoUnits = availableGeoUnits.map(unit => unit.geo_id);
+				}
+			}
 			
 			// Transform the data based on chart type
 			chartData = transformDataForChart(data, selectedChartType);
@@ -311,33 +411,72 @@
 				break;
 				
 			case 'line':
-				// For line charts, show trend over time for a specific geography or aggregate
+				// For line charts, show trend over time for selected geographic units
 				if (xAxisVariable === 'year' && yAxisVariable) {
-					// Group by year and aggregate the indicator values
-					const yearMap = new Map();
-					rawData.forEach(row => {
+					// Filter data to only include selected geographic units
+					const filteredData = rawData.filter(row => 
+						selectedGeoUnits.length === 0 || selectedGeoUnits.includes(row.geo_id)
+					);
+					
+					// Group by geographic unit and year
+					const geoYearMap = new Map();
+					filteredData.forEach(row => {
+						const geoId = row.geo_id;
+						const geoName = row.geo_name || geoId || 'Unknown';
 						const year = row.year;
 						const indicatorValue = row[yAxisVariable];
 						
 						if (year && indicatorValue !== null && indicatorValue !== undefined) {
-							if (yearMap.has(year)) {
-								const existing = yearMap.get(year);
-								yearMap.set(year, {
-									x: year,
-									y: (existing.y + indicatorValue) / 2, // Average
-									count: existing.count + 1
-								});
-							} else {
-								yearMap.set(year, {
-									x: year,
-									y: indicatorValue,
-									count: 1
+							if (!geoYearMap.has(geoId)) {
+								geoYearMap.set(geoId, {
+									geo_id: geoId,
+									geo_name: geoName,
+									data: new Map()
 								});
 							}
+							
+							const geoData = geoYearMap.get(geoId);
+							geoData.data.set(year, {
+								x: year,
+								y: indicatorValue
+							});
 						}
 					});
 					
-					return Array.from(yearMap.values()).sort((a, b) => a.x - b.x);
+					// Convert to array format for Chart.js with separate datasets per geographic unit
+					const datasets = [];
+					const colors = [
+						'rgba(59, 130, 246, 1)',    // Blue
+						'rgba(16, 185, 129, 1)',    // Green
+						'rgba(245, 158, 11, 1)',    // Orange
+						'rgba(239, 68, 68, 1)',     // Red
+						'rgba(139, 92, 246, 1)',    // Purple
+						'rgba(236, 72, 153, 1)',    // Pink
+						'rgba(14, 165, 233, 1)',    // Sky
+						'rgba(34, 197, 94, 1)',     // Emerald
+						'rgba(251, 146, 60, 1)',    // Amber
+						'rgba(168, 85, 247, 1)'     // Violet
+					];
+					
+					let colorIndex = 0;
+					for (const [geoId, geoInfo] of geoYearMap) {
+						const sortedData = Array.from(geoInfo.data.values()).sort((a, b) => a.x - b.x);
+						const color = colors[colorIndex % colors.length];
+						
+						datasets.push({
+							label: geoInfo.geo_name,
+							data: sortedData,
+							borderColor: color,
+							backgroundColor: color.replace('1)', '0.1)'),
+							tension: 0.1,
+							pointRadius: 4,
+							pointHoverRadius: 6
+						});
+						
+						colorIndex++;
+					}
+					
+					return datasets;
 				}
 				break;
 				
@@ -350,31 +489,25 @@
 						filteredData = rawData.filter(row => row.year === selectedYear);
 					}
 					
-					// Group by geography and get both indicator values
+					// Group by geography and get both indicator values - use geo_id as the primary key
 					const geoMap = new Map();
 					filteredData.forEach(row => {
-						const geoKey = row.geo_id || row.geo_name;
+						const geoId = row.geo_id;
 						const geoName = row.geo_name || row.geo_id || 'Unknown';
 						const xValue = parseFloat(row[xAxisVariable]);
 						const yValue = parseFloat(row[yAxisVariable]);
+						const colorValue = colorVariable ? parseFloat(row[colorVariable]) : null;
 						
-						// Check if values are valid numbers
-						if (!isNaN(xValue) && !isNaN(yValue) && isFinite(xValue) && isFinite(yValue)) {
-							if (geoMap.has(geoKey)) {
-								const existing = geoMap.get(geoKey);
-								geoMap.set(geoKey, {
-									x: (existing.x + xValue) / 2,
-									y: (existing.y + yValue) / 2,
-									label: geoName,
-									geo_id: row.geo_id,
-									geo_name: geoName
-								});
-							} else {
-								geoMap.set(geoKey, {
+						// Only use geo_id as key to avoid duplicates, and only if we have valid data
+						if (geoId && !isNaN(xValue) && !isNaN(yValue) && isFinite(xValue) && isFinite(yValue)) {
+							// Take the first valid entry for each geo_id (no averaging to avoid confusion)
+							if (!geoMap.has(geoId)) {
+								geoMap.set(geoId, {
 									x: xValue,
 									y: yValue,
+									colorValue: colorValue !== null && !isNaN(colorValue) ? colorValue : null,
 									label: geoName,
-									geo_id: row.geo_id,
+									geo_id: geoId,
 									geo_name: geoName
 								});
 							}
@@ -382,50 +515,127 @@
 					});
 					
 					const scatterData = Array.from(geoMap.values()).slice(0, 50); // Limit for performance
+					
+					// Update available geo units for search - ensure no duplicates
+					const uniqueGeoUnits = new Map();
+					scatterData.forEach(d => {
+						if (d.geo_id && d.geo_name) {
+							uniqueGeoUnits.set(d.geo_id, {
+								geo_id: d.geo_id,
+								geo_name: d.geo_name
+							});
+						}
+					});
+					availableGeoUnitsForSearch = Array.from(uniqueGeoUnits.values())
+						.sort((a, b) => a.geo_name.localeCompare(b.geo_name));
+					
 					console.log('Scatter plot data points:', scatterData.length, 'Sample:', scatterData.slice(0, 5));
+					console.log('Available geo units for search:', availableGeoUnitsForSearch.length);
 					return scatterData;
 				}
 				break;
 				
 			case 'pie':
-				// For pie charts, group by geography and use the selected indicator
-				if (yAxisVariable) {
-					// Filter data for the selected year if specified
-					let filteredData = rawData;
-					if (selectedYear) {
-						filteredData = rawData.filter(row => row.year === selectedYear);
+				// For pie charts, aggregate data based on the selected pie chart type
+				if (selectedPieChartType && selectedYear) {
+					// Filter data for the selected year
+					const filteredData = rawData.filter(row => row.year === selectedYear);
+					
+					if (filteredData.length === 0) {
+						return [];
 					}
 					
-					// Group by geography and get the indicator value
-					const geoMap = new Map();
-					filteredData.forEach(row => {
-						const geoName = row.geo_name || row.geo_id || 'Unknown';
-						const indicatorValue = row[yAxisVariable];
+					// Get the indicators for this pie chart type
+					const indicators = getPieChartIndicators(selectedPieChartType);
+					
+					// Aggregate values across all geographies for each indicator
+					const aggregatedData = new Map();
+					
+					indicators.forEach(indicator => {
+						let totalValue = 0;
+						let validDataCount = 0;
 						
-						if (indicatorValue !== null && indicatorValue !== undefined && indicatorValue > 0) {
-							if (geoMap.has(geoName)) {
-								const existing = geoMap.get(geoName);
-								geoMap.set(geoName, {
-									label: geoName,
-									value: existing.value + indicatorValue,
-									geo_id: row.geo_id,
-									geo_name: geoName
-								});
-							} else {
-								geoMap.set(geoName, {
-									label: geoName,
-									value: indicatorValue,
-									geo_id: row.geo_id,
-									geo_name: geoName
-								});
+						filteredData.forEach(row => {
+							const value = row[indicator];
+							if (value !== null && value !== undefined && !isNaN(value) && value >= 0) {
+								totalValue += value;
+								validDataCount++;
 							}
+						});
+						
+						if (validDataCount > 0) {
+							// Get a clean display name for the indicator
+							let displayName = indicator;
+							switch (indicator) {
+								case 'federal_revenue_pp':
+									displayName = 'Federal Revenue';
+									break;
+								case 'state_revenue_pp':
+									displayName = 'State Revenue';
+									break;
+								case 'local_revenue_pp':
+									displayName = 'Local Revenue';
+									break;
+								case 'asian_students':
+									displayName = 'Asian Students';
+									break;
+								case 'black_students':
+									displayName = 'Black Students';
+									break;
+								case 'latino_students':
+									displayName = 'Latino Students';
+									break;
+								case 'native_students':
+									displayName = 'Native Students';
+									break;
+								case 'pacific_islander_students':
+									displayName = 'Pacific Islander Students';
+									break;
+								case 'two_or_more_races_students':
+									displayName = 'Two or More Races Students';
+									break;
+								case 'asian_population':
+									displayName = 'Asian Population';
+									break;
+								case 'black_population':
+									displayName = 'Black Population';
+									break;
+								case 'native_population':
+									displayName = 'Native Population';
+									break;
+								case 'pacific_islander_population':
+									displayName = 'Pacific Islander Population';
+									break;
+								case 'two_or_more_races_population':
+									displayName = 'Two or More Races Population';
+									break;
+								case 'other_race_population':
+									displayName = 'Other Race Population';
+									break;
+								default:
+									displayName = indicator.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+							}
+							
+							aggregatedData.set(indicator, {
+								label: displayName,
+								value: selectedPieChartType === 'revenue' ? totalValue : totalValue / validDataCount, // Average for percentages, sum for revenue
+								indicator_id: indicator
+							});
 						}
 					});
 					
-					// Sort by value and take top 10 for pie chart
-					return Array.from(geoMap.values())
-						.sort((a, b) => b.value - a.value)
-						.slice(0, 10);
+					// Convert to array and sort by value
+					const result = Array.from(aggregatedData.values())
+						.filter(item => item.value > 0)
+						.sort((a, b) => b.value - a.value);
+					
+					console.log('Pie chart data transformation result:', {
+						pieChartType: selectedPieChartType,
+						indicators,
+						result
+					});
+					
+					return result;
 				}
 				break;
 		}
@@ -492,7 +702,15 @@
 				},
 				title: {
 					display: true,
-					text: `${getIndicatorDisplayName(yAxisVariable)} ${chartType === 'line' ? 'Over Time' : chartType === 'bar' ? 'by Geography' : 'Analysis'}`
+					text: chartType === 'scatter' && xAxisVariable && yAxisVariable 
+						? `${getIndicatorDisplayName(yAxisVariable)} vs ${getIndicatorDisplayName(xAxisVariable)}`
+						: chartType === 'pie' && selectedPieChartType
+							? selectedPieChartType === 'revenue' 
+								? 'Per Pupil Revenue Breakdown'
+								: selectedPieChartType === 'student_demographics'
+									? 'Student Demographics Breakdown'
+									: 'Community Demographics Breakdown'
+							: `${getIndicatorDisplayName(yAxisVariable)} ${chartType === 'line' ? 'Over Time' : chartType === 'bar' ? 'by Geography' : 'Analysis'}`
 				},
 				tooltip: {
 					backgroundColor: 'rgba(0, 0, 0, 0.8)',
@@ -502,58 +720,75 @@
 					borderWidth: 1,
 					cornerRadius: 6,
 					displayColors: true,
-					callbacks: {
-						title: function(context: any) {
-							const dataPoint = context[0];
-							const dataIndex = dataPoint.dataIndex;
-							
-							// For different chart types, extract geography name differently
-							switch (chartType) {
-								case 'bar':
-									// Use the geography name from the transformed data
-									const barDataItem = data[dataIndex];
-									return barDataItem?.geo_name || barDataItem?.label || 'Unknown Geography';
-								case 'scatter':
-									// Use the geography name from the transformed data
-									const scatterDataItem = data[dataIndex];
-									return scatterDataItem?.geo_name || scatterDataItem?.label || `Data Point ${dataIndex + 1}`;
-								case 'line':
-									return `Year ${dataPoint.parsed.x}`;
-								case 'pie':
-									// Use the geography name from the transformed data
-									const pieDataItem = data[dataIndex];
-									return pieDataItem?.geo_name || pieDataItem?.label || 'Unknown Geography';
-								default:
-									return dataPoint.label || 'Data Point';
-							}
-						},
+						callbacks: {
+							title: function(context: any) {
+								const dataPoint = context[0];
+								
+								// For different chart types, extract geography name differently
+								switch (chartType) {
+									case 'bar':
+										// Use the geography name from the transformed data
+										const dataIndex = dataPoint.dataIndex;
+										const barDataItem = data[dataIndex];
+										return barDataItem?.geo_name || barDataItem?.label || 'Unknown Geography';
+									case 'scatter':
+										// For scatter plots, get the geo_name directly from the raw data point
+										const rawDataPoint = dataPoint.raw;
+										return rawDataPoint?.geo_name || rawDataPoint?.label || `Data Point ${dataPoint.dataIndex + 1}`;
+									case 'line':
+										return `Year ${dataPoint.parsed.x}`;
+									case 'pie':
+										// Use the geography name from the transformed data
+										const pieDataIndex = dataPoint.dataIndex;
+										const pieDataItem = data[pieDataIndex];
+										return pieDataItem?.geo_name || pieDataItem?.label || 'Unknown Geography';
+									default:
+										return dataPoint.label || 'Data Point';
+								}
+							},
 						label: function(context: any) {
 							const dataPoint = context.parsed;
 							const labels = [];
 							
+							// Helper function to format numbers to 2 decimal places
+							const formatNumber = (value: any) => {
+								if (value == null || isNaN(value)) return 'N/A';
+								return Number(value).toLocaleString(undefined, { 
+									minimumFractionDigits: 2, 
+									maximumFractionDigits: 2 
+								});
+							};
+							
 							switch (chartType) {
 								case 'bar':
 									const cleanYAxisName = getIndicatorDisplayName(yAxisVariable);
-									labels.push(`${cleanYAxisName}: ${dataPoint.y?.toLocaleString() || context.raw?.toLocaleString() || 'N/A'}`);
+									labels.push(`${cleanYAxisName}: ${formatNumber(dataPoint.y) || formatNumber(context.raw)}`);
 									break;
 								case 'scatter':
 									const cleanXAxisName = getIndicatorDisplayName(xAxisVariable);
 									const cleanYAxisNameScatter = getIndicatorDisplayName(yAxisVariable);
-									labels.push(`${cleanXAxisName}: ${dataPoint.x?.toLocaleString() || 'N/A'}`);
-									labels.push(`${cleanYAxisNameScatter}: ${dataPoint.y?.toLocaleString() || 'N/A'}`);
+									labels.push(`${cleanXAxisName}: ${formatNumber(dataPoint.x)}`);
+									labels.push(`${cleanYAxisNameScatter}: ${formatNumber(dataPoint.y)}`);
 									break;
 								case 'line':
 									const cleanYAxisNameLine = getIndicatorDisplayName(yAxisVariable);
-									labels.push(`${cleanYAxisNameLine}: ${dataPoint.y?.toLocaleString() || context.raw?.toLocaleString() || 'N/A'}`);
+									labels.push(`${cleanYAxisNameLine}: ${formatNumber(dataPoint.y) || formatNumber(context.raw)}`);
 									break;
 								case 'pie':
-									const percentage = ((context.raw / data.reduce((sum, item) => sum + item.value, 0)) * 100).toFixed(1);
-									const cleanYAxisNamePie = getIndicatorDisplayName(yAxisVariable);
-									labels.push(`${cleanYAxisNamePie}: ${context.raw?.toLocaleString() || 'N/A'}`);
-									labels.push(`Percentage: ${percentage}%`);
+									const percentage = ((context.raw / data.reduce((sum, item) => sum + item.value, 0)) * 100).toFixed(2);
+									const pieDataItem = data[context.dataIndex];
+									const value = formatNumber(context.raw);
+									
+									// Format value based on pie chart type
+									if (selectedPieChartType === 'revenue') {
+										labels.push(`Amount: $${value}`);
+									} else {
+										labels.push(`Average: ${value}%`);
+									}
+									labels.push(`Share: ${percentage}%`);
 									break;
 								default:
-									labels.push(`Value: ${context.raw?.toLocaleString() || 'N/A'}`);
+									labels.push(`Value: ${formatNumber(context.raw)}`);
 							}
 							
 							return labels;
@@ -601,13 +836,7 @@
 				return {
 					type: 'line' as const,
 					data: {
-						datasets: [{
-							label: yAxisVariable,
-							data: data,
-							borderColor: 'rgba(59, 130, 246, 1)',
-							backgroundColor: 'rgba(59, 130, 246, 0.1)',
-							tension: 0.1
-						}]
+						datasets: data // data is already an array of datasets for line charts
 					},
 					options: {
 						...baseConfig,
@@ -617,6 +846,13 @@
 								title: {
 									display: true,
 									text: xAxisVariable === 'year' ? 'Year' : getIndicatorDisplayName(xAxisVariable)
+								},
+								ticks: {
+									stepSize: 1,
+									callback: function(value: any) {
+										// Format years as integers without decimals
+										return Math.round(value).toString();
+									}
 								}
 							},
 							y: {
@@ -641,19 +877,103 @@
 				
 				console.log('Scatter plot config - valid data points:', validScatterData.length);
 				
+				// Create datasets based on color variable
+				let datasets = [];
+				
+				if (colorVariable && validScatterData.some(d => d.colorValue !== null && d.colorValue !== undefined)) {
+					// Group by color variable value ranges
+					const colorValues = validScatterData
+						.filter(d => d.colorValue !== null && d.colorValue !== undefined)
+						.map(d => d.colorValue);
+					
+					if (colorValues.length > 0) {
+						const minColor = Math.min(...colorValues);
+						const maxColor = Math.max(...colorValues);
+						const range = maxColor - minColor;
+						
+						// Create 5 color groups
+						const numGroups = Math.min(5, Math.max(2, Math.ceil(Math.sqrt(colorValues.length))));
+						const groupSize = range / numGroups;
+						
+						const colors = [
+							'rgba(59, 130, 246, 0.7)',    // Blue
+							'rgba(16, 185, 129, 0.7)',    // Green
+							'rgba(245, 158, 11, 0.7)',    // Orange
+							'rgba(239, 68, 68, 0.7)',     // Red
+							'rgba(139, 92, 246, 0.7)'     // Purple
+						];
+						
+						for (let i = 0; i < numGroups; i++) {
+							const groupMin = minColor + (i * groupSize);
+							const groupMax = i === numGroups - 1 ? maxColor : minColor + ((i + 1) * groupSize);
+							
+							const groupData = validScatterData.filter(d => {
+								if (d.colorValue === null || d.colorValue === undefined) return false;
+								return d.colorValue >= groupMin && d.colorValue <= groupMax;
+							});
+							
+							if (groupData.length > 0) {
+								const color = colors[i % colors.length];
+								datasets.push({
+									label: `${getIndicatorDisplayName(colorVariable)}: ${groupMin.toFixed(1)} - ${groupMax.toFixed(1)}`,
+									data: groupData.map(d => ({
+										...d,
+										backgroundColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : color,
+										borderColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : color.replace('0.7)', '1)'),
+										pointRadius: highlightedGeoId === d.geo_id ? 8 : 5,
+										pointHoverRadius: highlightedGeoId === d.geo_id ? 10 : 7
+									})),
+									backgroundColor: color,
+									borderColor: color.replace('0.7)', '1)'),
+									borderWidth: 1,
+									pointRadius: 5,
+									pointHoverRadius: 7
+								});
+							}
+						}
+						
+						// Add points without color values as a separate group
+						const noColorData = validScatterData.filter(d => d.colorValue === null || d.colorValue === undefined);
+						if (noColorData.length > 0) {
+							datasets.push({
+								label: 'No data',
+								data: noColorData.map(d => ({
+									...d,
+									backgroundColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : 'rgba(156, 163, 175, 0.7)',
+									borderColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : 'rgba(156, 163, 175, 1)',
+									pointRadius: highlightedGeoId === d.geo_id ? 8 : 5,
+									pointHoverRadius: highlightedGeoId === d.geo_id ? 10 : 7
+								})),
+								backgroundColor: 'rgba(156, 163, 175, 0.7)',
+								borderColor: 'rgba(156, 163, 175, 1)',
+								borderWidth: 1,
+								pointRadius: 5,
+								pointHoverRadius: 7
+							});
+						}
+					}
+				} else {
+					// No color grouping - single dataset with highlighting
+					datasets = [{
+						label: 'Data Points',
+						data: validScatterData.map(d => ({
+							...d,
+							backgroundColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : 'rgba(59, 130, 246, 0.6)',
+							borderColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : 'rgba(59, 130, 246, 1)',
+							pointRadius: highlightedGeoId === d.geo_id ? 8 : 5,
+							pointHoverRadius: highlightedGeoId === d.geo_id ? 10 : 7
+						})),
+						backgroundColor: 'rgba(59, 130, 246, 0.6)',
+						borderColor: 'rgba(59, 130, 246, 1)',
+						borderWidth: 1,
+						pointRadius: 5,
+						pointHoverRadius: 7
+					}];
+				}
+				
 				return {
 					type: 'scatter' as const,
-					data: {
-						datasets: [{
-							label: 'Data Points',
-							data: validScatterData,
-							backgroundColor: 'rgba(59, 130, 246, 0.6)',
-							borderColor: 'rgba(59, 130, 246, 1)',
-							borderWidth: 1,
-							pointRadius: 5,
-							pointHoverRadius: 7
-						}]
-					},
+					data: { datasets },
 					options: {
 						...baseConfig,
 						scales: {
@@ -669,6 +989,47 @@
 								title: {
 									display: true,
 									text: getIndicatorDisplayName(yAxisVariable)
+								}
+							}
+						},
+						plugins: {
+							...baseConfig.plugins,
+							tooltip: {
+								...baseConfig.plugins.tooltip,
+								callbacks: {
+									...baseConfig.plugins.tooltip.callbacks,
+									title: function(context: any) {
+										const dataPoint = context[0];
+										// For scatter plots, get the geo_name directly from the raw data point
+										const rawDataPoint = dataPoint.raw;
+										return rawDataPoint?.geo_name || rawDataPoint?.label || `Data Point ${dataPoint.dataIndex + 1}`;
+									},
+									label: function(context: any) {
+										const dataPoint = context.parsed;
+										const rawDataPoint = context.raw;
+										const labels = [];
+										
+										// Helper function to format numbers to 2 decimal places
+										const formatNumber = (value: any) => {
+											if (value == null || isNaN(value)) return 'N/A';
+											return Number(value).toLocaleString(undefined, { 
+												minimumFractionDigits: 2, 
+												maximumFractionDigits: 2 
+											});
+										};
+										
+										const cleanXAxisName = getIndicatorDisplayName(xAxisVariable);
+										const cleanYAxisName = getIndicatorDisplayName(yAxisVariable);
+										labels.push(`${cleanXAxisName}: ${formatNumber(dataPoint.x)}`);
+										labels.push(`${cleanYAxisName}: ${formatNumber(dataPoint.y)}`);
+										
+										if (colorVariable && rawDataPoint.colorValue !== null && rawDataPoint.colorValue !== undefined) {
+											const cleanColorName = getIndicatorDisplayName(colorVariable);
+											labels.push(`${cleanColorName}: ${formatNumber(rawDataPoint.colorValue)}`);
+										}
+										
+										return labels;
+									}
 								}
 							}
 						}
@@ -687,7 +1048,8 @@
 								'rgba(16, 185, 129, 0.8)',
 								'rgba(245, 158, 11, 0.8)',
 								'rgba(239, 68, 68, 0.8)',
-								'rgba(139, 92, 246, 0.8)'
+								'rgba(139, 92, 246, 0.8)',
+								'rgba(236, 72, 153, 0.8)'
 							],
 							borderWidth: 2,
 							borderColor: '#ffffff'
@@ -713,6 +1075,14 @@
 
 	// Function to update available options based on analysis filters
 	function updateAvailableOptions() {
+		// For pie charts, we use current years from unified filters or default years
+		if (selectedChartType === 'pie') {
+			availableYears = $currentYears.length > 0 
+				? [...$currentYears].sort((a, b) => a - b)
+				: [2020, 2021, 2022]; // Default years if none selected
+			return;
+		}
+		
 		if (!$isAnalysisReady) {
 			availableVariables = [];
 			availableYears = [];
@@ -735,13 +1105,13 @@
 		
 		switch (selectedChartType) {
 			case 'bar':
-				return !!(xAxisVariable && yAxisVariable);
+				return !!yAxisVariable; // Bar charts only need y variable, x is always geographic unit
 			case 'scatter':
 				return !!(xAxisVariable && yAxisVariable && xAxisVariable !== yAxisVariable);
 			case 'line':
 				return !!(xAxisVariable && yAxisVariable);
 			case 'pie':
-				return !!(yAxisVariable);
+				return !!(selectedPieChartType && selectedYear);
 			default:
 				return false;
 		}
@@ -764,7 +1134,7 @@
 	}
 	
 	// Reactive statements
-	$: if (browser && $isAnalysisReady) {
+	$: if (browser) {
 		updateAvailableOptions();
 	}
 	
@@ -780,6 +1150,154 @@
 		}
 	}
 	
+	// Function to handle search and highlighting
+	function handleSearch() {
+		if (!searchTerm.trim()) {
+			highlightedGeoId = null;
+			if (chartInstance) {
+				renderChart(); // Re-render to remove highlighting
+			}
+			return;
+		}
+		
+		// Find matching geographic unit
+		const matchingUnit = availableGeoUnitsForSearch.find(unit => 
+			unit.geo_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+			unit.geo_id.toLowerCase().includes(searchTerm.toLowerCase())
+		);
+		
+		if (matchingUnit) {
+			highlightedGeoId = matchingUnit.geo_id;
+			
+			// Re-render chart with highlighting
+			if (chartInstance) {
+				renderChart();
+				
+				// Find the data point and trigger tooltip
+				setTimeout(() => {
+					if (chartInstance && selectedChartType === 'scatter') {
+						const datasets = chartInstance.data.datasets;
+						let pointIndex = -1;
+						let datasetIndex = -1;
+						
+						// Find the highlighted point across all datasets
+						for (let i = 0; i < datasets.length; i++) {
+							const dataset = datasets[i];
+							pointIndex = dataset.data.findIndex((point: any) => point.geo_id === highlightedGeoId);
+							if (pointIndex !== -1) {
+								datasetIndex = i;
+								break;
+							}
+						}
+						
+						if (pointIndex !== -1 && datasetIndex !== -1) {
+							// Show tooltip for the highlighted point
+							chartInstance.tooltip.setActiveElements([{
+								datasetIndex: datasetIndex,
+								index: pointIndex
+							}], {
+								x: 0,
+								y: 0
+							});
+							chartInstance.update('none');
+						}
+					}
+				}, 100);
+			}
+		} else {
+			highlightedGeoId = null;
+			if (chartInstance) {
+				renderChart(); // Re-render to remove highlighting
+			}
+		}
+	}
+	
+	// Function to clear search
+	function clearSearch() {
+		searchTerm = '';
+		highlightedGeoId = null;
+		if (chartInstance) {
+			renderChart(); // Re-render to remove highlighting
+		}
+	}
+	
+	// Filtered search results for dropdown
+	$: filteredSearchResults = searchTerm.trim() 
+		? availableGeoUnitsForSearch.filter(unit => 
+			unit.geo_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+			unit.geo_id.toLowerCase().includes(searchTerm.toLowerCase())
+		).slice(0, 10) // Limit to 10 results
+		: [];
+	
+	// Function to export chart as PNG
+	function exportChartAsPNG() {
+		if (!chartInstance || !chartCanvas) {
+			console.error('No chart instance or canvas available for export');
+			return;
+		}
+		
+		try {
+			// Get the chart as a base64 encoded PNG
+			const url = chartInstance.toBase64Image('image/png', 1.0);
+			
+			// Create a temporary link element to trigger download
+			const link = document.createElement('a');
+			link.download = generateChartFileName();
+			link.href = url;
+			
+			// Trigger the download
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+		} catch (error) {
+			console.error('Error exporting chart:', error);
+			// Fallback: try using canvas toDataURL directly
+			try {
+				const url = chartCanvas.toDataURL('image/png');
+				const link = document.createElement('a');
+				link.download = generateChartFileName();
+				link.href = url;
+				document.body.appendChild(link);
+				link.click();
+				document.body.removeChild(link);
+			} catch (fallbackError) {
+				console.error('Fallback export also failed:', fallbackError);
+				alert('Failed to export chart. Please try again.');
+			}
+		}
+	}
+	
+	// Function to generate a descriptive filename for the exported chart
+	function generateChartFileName(): string {
+		const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+		const chartTypeLabel = chartOptions.find(opt => opt.id === selectedChartType)?.useCase || 'Chart';
+		
+		let filename = `${chartTypeLabel.replace(/\s+/g, '_')}_${timestamp}`;
+		
+		// Add specific details based on chart type
+		if (selectedChartType === 'pie' && selectedPieChartType) {
+			const pieTypeLabel = selectedPieChartType.replace(/_/g, '_');
+			filename = `${pieTypeLabel}_breakdown_${timestamp}`;
+		} else if (selectedChartType === 'scatter' && xAxisVariable && yAxisVariable) {
+			const xLabel = getIndicatorDisplayName(xAxisVariable).replace(/\s+/g, '_');
+			const yLabel = getIndicatorDisplayName(yAxisVariable).replace(/\s+/g, '_');
+			filename = `${yLabel}_vs_${xLabel}_${timestamp}`;
+		} else if (selectedChartType === 'line' && yAxisVariable) {
+			const yLabel = getIndicatorDisplayName(yAxisVariable).replace(/\s+/g, '_');
+			filename = `${yLabel}_over_time_${timestamp}`;
+		} else if (selectedChartType === 'bar' && yAxisVariable) {
+			const yLabel = getIndicatorDisplayName(yAxisVariable).replace(/\s+/g, '_');
+			filename = `${yLabel}_by_geography_${timestamp}`;
+		}
+		
+		// Add year information if applicable
+		if (selectedYear && selectedChartType !== 'line') {
+			filename += `_${selectedYear}`;
+		}
+		
+		return `${filename}.png`;
+	}
+
 	// Clean up debounce timer and chart instance on component destroy
 	onDestroy(() => {
 		if (debounceTimer) {
@@ -801,7 +1319,7 @@
 					<p class="text-sm text-gray-600 mt-1">
 						{#if selectedChartType}
 							Creating a {chartOptions.find(opt => opt.id === selectedChartType)?.useCase.toLowerCase()}
-						{:else if $isAnalysisReady}
+						{:else if $isAnalysisReady || selectedChartType === 'pie'}
 							Choose how you'd like to visualize your data
 						{:else}
 							Select indicators, geography level, and years to create charts
@@ -857,7 +1375,7 @@
 			{/if}
 			
 			<!-- Selection prompt -->
-			{#if !$isAnalysisReady && !isLoading}
+			{#if !$isAnalysisReady && selectedChartType !== 'pie' && !isLoading}
 				<div class="p-8 text-center">
 					<div class="text-gray-400 text-xl mb-2">📊</div>
 					<h4 class="text-gray-700 font-semibold mb-2">Ready to Visualize</h4>
@@ -868,7 +1386,7 @@
 			{/if}
 			
 			<!-- Chart type selection -->
-			{#if $isAnalysisReady && !selectedChartType}
+			{#if !selectedChartType}
 				<div class="p-6">
 					<div class="text-center mb-8">
 						<h4 class="text-xl font-semibold text-gray-900 mb-2">
@@ -912,7 +1430,7 @@
 			{/if}
 			
 			<!-- Chart configuration -->
-			{#if $isAnalysisReady && selectedChartType}
+			{#if (selectedChartType === 'pie' || $isAnalysisReady) && selectedChartType}
 				<div class="p-6">
 					<div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
 						<!-- Configuration Panel -->
@@ -927,8 +1445,38 @@
 									</p>
 									
 									<div class="space-y-4">
-										<!-- X-Axis Variable -->
-										{#if selectedChartType !== 'pie'}
+										<!-- Pie Chart Type Selection -->
+										{#if selectedChartType === 'pie'}
+											<div>
+												<label class="block text-sm font-medium text-gray-700 mb-2">
+													Pie Chart Type
+												</label>
+												<select
+													bind:value={selectedPieChartType}
+													on:change={handleConfigChange}
+													class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
+												>
+													<option value="">Select breakdown type...</option>
+													<option value="revenue">Per Pupil Revenue Breakdown</option>
+													<option value="student_demographics">Student Demographics Breakdown</option>
+													<option value="community_demographics">Community Demographics Breakdown</option>
+												</select>
+												<p class="text-xs text-gray-500 mt-1">
+													{#if selectedPieChartType === 'revenue'}
+														Shows federal, state, and local revenue per pupil
+													{:else if selectedPieChartType === 'student_demographics'}
+														Shows student population by race/ethnicity
+													{:else if selectedPieChartType === 'community_demographics'}
+														Shows community population by race/ethnicity
+													{:else}
+														Choose the type of breakdown to display
+													{/if}
+												</p>
+											</div>
+										{/if}
+										
+										<!-- X-Axis Variable (only shown for scatter charts) -->
+										{#if selectedChartType === 'scatter'}
 											<div>
 												<label class="block text-sm font-medium text-gray-700 mb-2">
 													X-Axis Variable
@@ -939,12 +1487,6 @@
 													class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
 												>
 													<option value="">Select variable...</option>
-													{#if selectedChartType === 'bar'}
-														<option value="geo_name">Geography Name</option>
-													{/if}
-													{#if selectedChartType === 'line'}
-														<option value="year">Year</option>
-													{/if}
 													{#each availableVariables as variable}
 														<option value={variable}>{getIndicatorDisplayName(variable)}</option>
 													{/each}
@@ -952,22 +1494,60 @@
 											</div>
 										{/if}
 										
-										<!-- Y-Axis Variable -->
-										<div>
-											<label class="block text-sm font-medium text-gray-700 mb-2">
-												{selectedChartType === 'pie' ? 'Value Variable' : 'Y-Axis Variable'}
-											</label>
-											<select
-												bind:value={yAxisVariable}
-												on:change={handleConfigChange}
-												class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
-											>
-												<option value="">Select variable...</option>
-												{#each availableVariables as variable}
-													<option value={variable}>{getIndicatorDisplayName(variable)}</option>
-												{/each}
-											</select>
-										</div>
+										<!-- Y-Axis Variable (hidden for pie charts since they use predefined indicators) -->
+										{#if selectedChartType !== 'pie'}
+											<div>
+												<label class="block text-sm font-medium text-gray-700 mb-2">
+													Y-Axis Variable
+												</label>
+												<select
+													bind:value={yAxisVariable}
+													on:change={handleConfigChange}
+													class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
+												>
+													<option value="">Select variable...</option>
+													{#each availableVariables as variable}
+														<option value={variable}>{getIndicatorDisplayName(variable)}</option>
+													{/each}
+												</select>
+											</div>
+										{/if}
+										
+										<!-- Year Selection for Line Charts -->
+										{#if selectedChartType === 'line'}
+											<div>
+												<label class="block text-sm font-medium text-gray-700 mb-2">
+													Years to Display
+												</label>
+												<YearSelector
+													selectedYears={$currentYears}
+													mode="dropdown"
+													placeholder="Select years for chart..."
+													on:change={(event) => setYears(event.detail.selectedYears)}
+												/>
+												<p class="text-xs text-gray-500 mt-1">
+													Line charts will show trends across the selected years
+												</p>
+											</div>
+										{/if}
+
+										<!-- Geographic Unit Selection for Line Charts -->
+										{#if selectedChartType === 'line' && availableGeoUnits.length > 0}
+											<div>
+												<label class="block text-sm font-medium text-gray-700 mb-2">
+													Geographic Units to Display
+												</label>
+												<GeographicUnitSelector
+													availableUnits={availableGeoUnits}
+													bind:selectedUnits={selectedGeoUnits}
+													on:change={handleConfigChange}
+													placeholder="Search geographic units..."
+												/>
+												<p class="text-xs text-gray-500 mt-1">
+													Select which {$currentGeoLevel}s to show as separate lines on the chart
+												</p>
+											</div>
+										{/if}
 										
 										<!-- Color Variable (optional) -->
 										{#if selectedChartType === 'scatter'}
@@ -982,7 +1562,7 @@
 												>
 													<option value="">No color grouping</option>
 													{#each availableVariables as variable}
-														<option value={variable}>{variable}</option>
+														<option value={variable}>{getIndicatorDisplayName(variable)}</option>
 													{/each}
 												</select>
 											</div>
@@ -1050,6 +1630,61 @@
 											</div>
 										</div>
 									{:else}
+										<!-- Search Bar for Scatter Plot -->
+										{#if selectedChartType === 'scatter' && availableGeoUnitsForSearch.length > 0}
+											<div class="mb-4">
+												<label class="block text-sm font-medium text-gray-700 mb-2">
+													Search Geographic Units
+												</label>
+												<div class="relative">
+													<input
+														type="text"
+														bind:value={searchTerm}
+														on:input={handleSearch}
+														placeholder="Search for a geographic unit..."
+														class="block w-full px-3 py-2 pr-10 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
+													/>
+													{#if searchTerm}
+														<button
+															type="button"
+															on:click={clearSearch}
+															class="absolute inset-y-0 right-0 pr-3 flex items-center"
+														>
+															<svg class="h-4 w-4 text-gray-400 hover:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+																<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+															</svg>
+														</button>
+													{/if}
+													
+													<!-- Search Results Dropdown -->
+													{#if filteredSearchResults.length > 0}
+														<div class="absolute z-50 mt-1 w-full bg-white shadow-lg max-h-60 rounded-md py-1 text-base ring-1 ring-black ring-opacity-5 overflow-auto focus:outline-none text-sm">
+															{#each filteredSearchResults as unit}
+																<button
+																	type="button"
+																	class="w-full text-left px-3 py-2 hover:bg-gray-50 focus:bg-gray-50 focus:outline-none"
+																	on:click={() => {
+																		searchTerm = unit.geo_name;
+																		handleSearch();
+																	}}
+																>
+																	<div class="flex justify-between items-center">
+																		<span class="text-gray-900">{unit.geo_name}</span>
+																		<span class="text-xs text-gray-500">{unit.geo_id}</span>
+																	</div>
+																</button>
+															{/each}
+														</div>
+													{/if}
+												</div>
+												{#if highlightedGeoId}
+													<p class="text-xs text-amber-600 mt-1">
+														Highlighting: {availableGeoUnitsForSearch.find(u => u.geo_id === highlightedGeoId)?.geo_name || highlightedGeoId}
+													</p>
+												{/if}
+											</div>
+										{/if}
+										
 										<!-- Chart Canvas -->
 										<div class="relative h-96 w-full">
 											<canvas 
@@ -1061,6 +1696,22 @@
 										{#if chartData.length > 0 && !chartInstance}
 											<div class="mt-4 text-center text-sm text-amber-600">
 												Chart data loaded but visualization not rendered. Check console for errors.
+											</div>
+										{/if}
+										
+										<!-- Export Button -->
+										{#if chartInstance && chartData.length > 0}
+											<div class="mt-4 flex justify-end">
+												<Button
+													variant="outline"
+													size="sm"
+													on:click={exportChartAsPNG}
+												>
+													<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+													</svg>
+													Export as PNG
+												</Button>
 											</div>
 										{/if}
 									{/if}

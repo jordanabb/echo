@@ -7,8 +7,14 @@
 		selectedIndicatorCount,
 		isIndicatorSelected 
 	} from '$lib/stores/analysisFilters';
+	import { 
+		currentYears,
+		toggleYear,
+		setYears
+	} from '$lib/stores/unifiedFilters';
 	import Card from './Card.svelte';
 	import Button from './Button.svelte';
+	import YearSelector from './YearSelector.svelte';
 
 	// Component props
 	export let maxHeight = '400px';
@@ -184,6 +190,15 @@
 				{/if}
 			</div>
 
+			<!-- Year Selection -->
+			<div class="mt-3">
+				<YearSelector
+					selectedYears={$currentYears}
+					mode="inline"
+					on:change={(event) => setYears(event.detail.selectedYears)}
+				/>
+			</div>
+
 			<!-- Theme Controls -->
 			{#if !searchTerm && Object.keys($indicatorsByTheme).length > 1}
 				<div class="flex gap-2 mt-3">
@@ -286,10 +301,19 @@
 		</div>
 
 		<!-- Footer -->
-		{#if $selectedIndicatorCount > 0}
+		{#if $selectedIndicatorCount > 0 || $currentYears.length > 0}
 			<div class="p-4 border-t border-neutral-200 bg-neutral-50 rounded-b-xl">
-				<div class="text-sm text-neutral-600">
-					<strong>{$selectedIndicatorCount}</strong> variable{$selectedIndicatorCount === 1 ? '' : 's'} selected for analysis
+				<div class="text-sm text-neutral-600 space-y-1">
+					{#if $selectedIndicatorCount > 0}
+						<div>
+							<strong>{$selectedIndicatorCount}</strong> variable{$selectedIndicatorCount === 1 ? '' : 's'} selected for analysis
+						</div>
+					{/if}
+					{#if $currentYears.length > 0}
+						<div>
+							<strong>{$currentYears.length}</strong> year{$currentYears.length === 1 ? '' : 's'} selected: {$currentYears.sort((a, b) => a - b).join(', ')}
+						</div>
+					{/if}
 				</div>
 			</div>
 		{/if}

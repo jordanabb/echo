@@ -4,13 +4,19 @@
 	import { 
 		unifiedFilters,
 		currentGeoLevel,
+		currentGeoFilter,
 		currentPrimaryIndicator,
 		currentPrimaryYear,
+		currentYears,
+		currentSelectedIndicators,
+		currentMapDisplayYear,
+		currentMapDisplayIndicator,
 		areFiltersValid
 	} from '$lib/stores/unifiedFilters';
 	import { crossfade } from 'svelte/transition';
 	import { quintOut } from 'svelte/easing';
 	import Legend from './Legend.svelte';
+	import MapControlPanel from './MapControlPanel.svelte';
 	
 	// Mapbox imports
 	let mapboxgl: any;
@@ -27,17 +33,47 @@
 	let debugInfo: any = null;
 	let showDebug = false; // Hide debug panel by default
 	
+	// Map display state (separate from global selection)
+	let mapDisplayYear: number | null = null;
+	let mapDisplayIndicator: string | null = null;
+
+	// Initialize map display values from store
+	$: mapDisplayYear = $currentMapDisplayYear;
+	$: mapDisplayIndicator = $currentMapDisplayIndicator;
+
+	// Handle year change from control panel
+	function handleYearChange(event: CustomEvent<{ year: number }>) {
+		const { year } = event.detail;
+		mapDisplayYear = year;
+		
+		// Fetch new map data for the selected year
+		if ($currentGeoLevel && mapDisplayIndicator) {
+			fetchMapData(mapDisplayIndicator, $currentGeoLevel, year);
+		}
+	}
+
+	// Handle indicator change from control panel
+	function handleIndicatorChange(event: CustomEvent<{ indicatorId: string }>) {
+		const { indicatorId } = event.detail;
+		mapDisplayIndicator = indicatorId;
+		
+		// Fetch new map data for the selected indicator
+		if ($currentGeoLevel && mapDisplayYear) {
+			fetchMapData(indicatorId, $currentGeoLevel, mapDisplayYear);
+		}
+	}
+	
 	// Mapbox configuration
 	const MAPBOX_TOKEN = 'pk.eyJ1Ijoiam9yZGFuYWJiIiwiYSI6ImNtOWx1Y3FsMTAwdWkybXB4ajdmbXRnZHkifQ.VnprPvy-fvxSO05l9c1LOw';
 	const MAPBOX_STYLE = 'mapbox://styles/jordanabb/cmb5puoou002f01qt4r796okw';
 	
-	// Choropleth colors (matching backend)
+	// Choropleth colors (teal palette to match app theme)
 	const CHOROPLETH_PALETTE = [
-		'#f7fbff',
-		'#c6dbef', 
-		'#6baed6',
-		'#2171b5',
-		'#08306b'
+		'#f0fdfa',
+		'#ccfbf1', 
+		'#5eead4',
+		'#14b8a6',
+		'#0f766e'
 	];
 	const NO_DATA_COLOR = '#999999';
 	
@@ -72,6 +108,32 @@
 		
 		// Convert to string and pad with zeros on the left
 		return String(geoId).padStart(expectedLength, '0');
+	}
+	
+	// Function to generate legend data using the actual map colors
+	function generateLegendFromMapColors(originalLegend: any[]): any[] {
+		if (!originalLegend || originalLegend.length === 0) {
+			return [];
+		}
+		
+		// Map the original legend entries to use the actual map colors
+		return originalLegend.map((entry, index) => {
+			// Check if this is a "no data" entry
+			if (entry.label && entry.label.toLowerCase().includes('no data')) {
+				return {
+					...entry,
+					color: NO_DATA_COLOR
+				};
+			}
+			
+			// For data entries, use the corresponding color from the choropleth palette
+			// The API typically sends legend entries in order from lowest to highest
+			const colorIndex = Math.min(index, CHOROPLETH_PALETTE.length - 1);
+			return {
+				...entry,
+				color: CHOROPLETH_PALETTE[colorIndex]
+			};
+		});
 	}
 	
 	// Initialize Mapbox when component mounts
@@ -122,7 +184,7 @@
 		}
 	});
 	
-	// Reactive statement to fetch data when filters change
+	// Reactive statement to fetch data when filters change (including state filter)
 	$: if (browser && map && $areFiltersValid && $currentPrimaryIndicator && $currentGeoLevel && $currentPrimaryYear) {
 		// Additional validation to ensure we have valid filter values
 		const hasValidFilters = $currentPrimaryIndicator && 
@@ -149,6 +211,14 @@
 			});
 		}
 	}
+
+	// Separate reactive statement for state filter changes to trigger map refresh
+	$: if (browser && map && $areFiltersValid && $currentPrimaryIndicator && $currentGeoLevel && $currentPrimaryYear && $currentGeoFilter !== undefined) {
+		// Trigger refresh when state filter changes (including when it's cleared)
+		if (map.loaded()) {
+			fetchMapData($currentPrimaryIndicator, $currentGeoLevel, $currentPrimaryYear);
+		}
+	}
 	
 	// Function to fetch map data from API
 	async function fetchMapData(indicator: string, geoLevel: string, year: number) {
@@ -164,13 +234,19 @@
 				year: year.toString()
 			});
 			
+			// Add state filter if selected
+			if ($currentGeoFilter) {
+				params.set('state_filter', $currentGeoFilter);
+			}
+			
 			// Store debug info
 			debugInfo = {
 				requestUrl: `/api/map-view?${params}`,
 				requestParams: {
 					indicator,
 					geo_level: geoLevel,
-					year
+					year,
+					state_filter: $currentGeoFilter || null
 				},
 				timestamp: new Date().toISOString()
 			};
@@ -228,7 +304,9 @@
 			
 			// Update component state
 			mapData = data;
-			legendData = data.legend || [];
+			
+			// Generate legend data using the actual map colors
+			legendData = generateLegendFromMapColors(data.legend || []);
 			
 			// Update map with new data
 			updateMapData(data);
@@ -408,7 +486,7 @@
 						<div class="p-3">
 							<h3 class="font-semibold text-lg mb-2">${props.geo_name || props.geo_id}</h3>
 							<p class="text-sm text-gray-600 mb-1">
-								<strong>Value:</strong> ${props.value !== null ? props.value.toLocaleString() : 'No data'}
+								<strong>Value:</strong> ${props.value !== null ? Number(props.value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'No data'}
 							</p>
 							<p class="text-sm text-gray-600">
 								<strong>Geography ID:</strong> ${props.geo_id}
@@ -638,6 +716,14 @@
 		</div>
 	{/if}
 	
+	<!-- Map Control Panel -->
+	<MapControlPanel
+		displayYear={mapDisplayYear}
+		displayIndicator={mapDisplayIndicator}
+		on:yearChange={handleYearChange}
+		on:indicatorChange={handleIndicatorChange}
+	/>
+
 	<!-- Legend -->
 	{#if legendData.length > 0 && !isLoading && !error}
 		<div class="absolute bottom-4 left-4 z-10">

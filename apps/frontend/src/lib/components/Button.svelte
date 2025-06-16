@@ -1,6 +1,6 @@
 <script lang="ts">
 	export let variant: 'primary' | 'secondary' | 'accent' | 'outline' | 'ghost' = 'primary';
-	export let size: 'sm' | 'md' | 'lg' = 'md';
+	export let size: 'xs' | 'sm' | 'md' | 'lg' = 'md';
 	export let disabled = false;
 	export let loading = false;
 	export let href: string | undefined = undefined;
@@ -17,6 +17,7 @@
 	};
 
 	const sizeClasses = {
+		xs: 'px-2 py-1 text-xs rounded-lg font-medium',
 		sm: 'px-4 py-2 text-sm rounded-xl font-medium',
 		md: 'px-6 py-3 text-base rounded-2xl',
 		lg: 'px-8 py-4 text-lg rounded-2xl'

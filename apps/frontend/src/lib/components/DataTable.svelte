@@ -240,21 +240,23 @@
 		URL.revokeObjectURL(url);
 	}
 	
-	// Reactive statement to apply filtering and sorting when data or filters change
+	// Reactive statement to apply filtering and sorting when data or search term changes
 	$: if (tableData.length > 0) {
 		applySortingAndFiltering();
 	}
 	
-	// Reset search and sorting when new data is loaded
-	$: if (tableData.length > 0 && !isLoading) {
-		// Reset filters when new data arrives
-		if (searchTerm === '' && sortColumn === null) {
-			filteredData = [...tableData];
-		}
+	// Reactive statement to trigger filtering when searchTerm changes
+	$: if (tableData.length > 0 && searchTerm !== undefined) {
+		applySortingAndFiltering();
 	}
 	
 	// Reactive statement to fetch data when analysis filters change
 	$: if (browser && $isAnalysisReady) {
+		debounceApiCall(fetchTableData, DEBOUNCE_DELAY);
+	}
+	
+	// Additional reactive statements to ensure data updates when individual filters change
+	$: if (browser && $currentYears && $currentYears.length > 0 && $currentSelectedIndicators && $currentSelectedIndicators.length > 0 && $currentGeoLevel) {
 		debounceApiCall(fetchTableData, DEBOUNCE_DELAY);
 	}
 	
@@ -272,15 +274,11 @@
 		}
 		
 		if (typeof value === 'number') {
-			// Format numbers with appropriate precision
-			if (Number.isInteger(value)) {
-				return value.toLocaleString();
-			} else {
-				return value.toLocaleString(undefined, { 
-					minimumFractionDigits: 0, 
-					maximumFractionDigits: 2 
-				});
-			}
+			// Always round to exactly 2 decimal places for consistency
+			return value.toLocaleString(undefined, { 
+				minimumFractionDigits: 2, 
+				maximumFractionDigits: 2 
+			});
 		}
 		
 		return String(value);

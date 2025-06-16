@@ -7,6 +7,7 @@
 	import { 
 		unifiedFilters,
 		currentGeoLevel,
+		currentGeoFilter,
 		currentPrimaryYear,
 		currentPrimaryIndicator,
 		selectedIndicatorCount,
@@ -15,7 +16,8 @@
 		isAnalysisReady,
 		currentUrl,
 		currentSelectionDescription,
-		updateFilter
+		updateFilter,
+		updateFilters
 	} from '$lib/stores/unifiedFilters';
 	import { 
 		indicators,
@@ -32,6 +34,7 @@
 		navigateToView,
 		type ViewType
 	} from '$lib/stores/interactiveSteps';
+	import { US_STATES, getStateNameByCode } from '$lib/constants/states';
 
 	let loading = false;
 
@@ -53,7 +56,18 @@
 	function handleGeoLevelChange(event: Event) {
 		const target = event.target as HTMLSelectElement;
 		const geoLevel = target.value || null;
-		updateFilter('geoLevel', geoLevel);
+		// Clear state filter when geography level changes
+		updateFilters({
+			geoLevel: geoLevel,
+			geoFilter: null
+		});
+	}
+
+	// Handle state filter change from step 1
+	function handleStateFilterChange(event: Event) {
+		const target = event.target as HTMLSelectElement;
+		const stateCode = target.value || null;
+		updateFilter('geoFilter', stateCode);
 	}
 	
 	// Get display text for selected variables
@@ -187,33 +201,6 @@
 				</p>
 			</div>
 			
-			<!-- Plain English Description of Current Selection -->
-			{#if $currentSelectionDescription && ($currentGeoLevel || $selectedIndicatorCount > 0 || $selectedView)}
-				<div class="max-w-4xl mx-auto mb-12">
-					<div class="bg-gradient-to-r from-teal-50 to-emerald-50 border border-teal-200 rounded-2xl p-8 shadow-lg">
-						<div class="flex items-center justify-center mb-4">
-							<div class="w-10 h-10 bg-teal-100 rounded-full flex items-center justify-center mr-3">
-								<svg class="w-5 h-5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-								</svg>
-							</div>
-							<span class="text-lg font-medium text-teal-700">Your Current Selection</span>
-						</div>
-						<p class="text-2xl font-semibold text-teal-900 text-center">
-							{$currentSelectionDescription}
-							{#if $selectedView}
-								<span class="text-teal-700"> - viewing in {$selectedView === 'chart' ? 'charts' : $selectedView}</span>
-							{/if}
-						</p>
-						{#if $allStepsCompleted}
-							<div class="mt-4 text-center">
-								<span class="text-sm text-teal-600 font-medium">✓ All steps completed - scroll down to see your data!</span>
-							</div>
-						{/if}
-					</div>
-				</div>
-			{/if}
 			
 			<div class="grid grid-cols-1 md:grid-cols-3 gap-16">
 				<!-- Step 1: Interactive Geographic Level Selection -->
@@ -225,7 +212,7 @@
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2-2V7a2 2 0 012-2h2a2 2 0 002 2v2a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 00-2 2h-2a2 2 0 00-2 2v6a2 2 0 01-2 2H9a2 2 0 01-2-2z" />
 								</svg>
 							</div>
-							<div class="w-16 h-16 bg-premium-teal text-white rounded-2xl flex items-center justify-center mx-auto mb-8 font-bold text-2xl shadow-teal-glow relative">
+							<div class="w-16 h-16 bg-gradient-to-r from-teal-700 to-teal-800 text-white rounded-2xl flex items-center justify-center mx-auto mb-8 font-bold text-2xl shadow-elegant relative">
 								1
 								{#if $stepCompletion.step1}
 									<div class="absolute -top-2 -right-2 w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
@@ -242,7 +229,7 @@
 						</p>
 						
 						<!-- Interactive Geographic Selection -->
-						<div class="mt-6">
+						<div class="mt-6 space-y-4">
 							<select
 								class="w-full text-lg font-medium bg-white border-2 border-teal-200 focus:ring-4 focus:ring-teal-500/20 focus:border-teal-500 rounded-xl px-4 py-3 cursor-pointer hover:border-teal-300 transition-all"
 								value={$currentGeoLevel || ''}
@@ -253,6 +240,34 @@
 									<option value={level}>{$geographies[level]?.name || level}</option>
 								{/each}
 							</select>
+
+							<!-- Optional State Filter -->
+							{#if $currentGeoLevel}
+								<div class="pt-2">
+									<label class="block text-sm font-medium text-slate-600 mb-2">
+										State (Optional)
+									</label>
+									<select
+										class="w-full text-lg font-medium bg-white border-2 border-teal-200 focus:ring-4 focus:ring-teal-500/20 focus:border-teal-500 rounded-xl px-4 py-3 cursor-pointer hover:border-teal-300 transition-all"
+										value={$currentGeoFilter || ''}
+										on:change={handleStateFilterChange}
+									>
+										<option value="">All States</option>
+										{#each US_STATES as state}
+											<option value={state.code}>{state.name}</option>
+										{/each}
+									</select>
+									{#if $currentGeoFilter}
+										<p class="mt-2 text-sm text-teal-600 font-medium">
+											Filtering to {getStateNameByCode($currentGeoFilter)} only
+										</p>
+									{:else}
+										<p class="mt-2 text-sm text-slate-500">
+											Showing all states nationwide
+										</p>
+									{/if}
+								</div>
+							{/if}
 						</div>
 					</div>
 				</Card>
@@ -388,24 +403,6 @@
 			</div>
 		</section>
 
-		<!-- Premium Get Started Button -->
-		<div class="text-center">
-			<Button 
-				variant="primary" 
-				size="lg"
-				on:click={() => {
-					const interfaceSection = document.getElementById('interface-section');
-					if (interfaceSection) {
-						interfaceSection.scrollIntoView({ behavior: 'smooth' });
-					}
-				}}
-			>
-				<span class="mr-4">Start Exploring Data</span>
-				<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-				</svg>
-			</Button>
-		</div>
 	</div>
 </div>
 
@@ -447,7 +444,7 @@
 
 		<div class="grid grid-cols-1 xl:grid-cols-3 gap-8">
 			<!-- Current State Display -->
-			<div class="xl:col-span-2 space-y-6">
+			<div class="xl:col-span-2 space-y-6" style="display: none;">
 				<Card variant="elevated">
 					<h3 class="text-xl font-semibold text-slate-900 mb-6">Current Context</h3>
 					
@@ -514,7 +511,7 @@
 			</div>
 
 			<!-- Features -->
-			<div class="space-y-6">
+			<div class="space-y-6" style="display: none;">
 				<!-- Instructions -->
 				<Card variant="outline">
 					<div>
@@ -632,6 +629,14 @@
 			linear-gradient(90deg, rgba(0, 0, 0, 0.05) 1px, transparent 1px);
 		background-size: 20px 20px;
 	}
+
+	/* Debug sections - hidden from UI but preserved for debugging */
+	.debug-section {
+		display: none !important;
+	}
+
+	/* Uncomment the line below to show debug sections when needed */
+	/* .debug-section { display: block !important; } */
 
 	/* Smooth scrolling */
 	html {

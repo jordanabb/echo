@@ -8,4 +8,7 @@ export { default as FilterPanel } from './FilterPanel.svelte';
 export { default as Map } from './Map.svelte';
 export { default as Legend } from './Legend.svelte';
 export { default as VariableSelector } from './VariableSelector.svelte';
+export { default as YearSelector } from './YearSelector.svelte';
+export { default as MapControlPanel } from './MapControlPanel.svelte';
+export { default as GeographicUnitSelector } from './GeographicUnitSelector.svelte';
 export { default as UnifiedContextBar } from './UnifiedContextBar.svelte';

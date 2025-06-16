@@ -35,6 +35,8 @@
 		type ViewType
 	} from '$lib/stores/interactiveSteps';
 	import { US_STATES, getStateNameByCode } from '$lib/constants/states';
+	import { fly, fade } from 'svelte/transition';
+	import { quintOut } from 'svelte/easing';
 
 	let loading = false;
 
@@ -121,14 +123,34 @@
 			<!-- Dramatic Main Title -->
 			<h1 class="text-7xl md:text-9xl font-display font-black mb-8 tracking-tight leading-none">
 				<span class="bg-gradient-to-r from-teal-800 via-teal-700 to-teal-800 bg-clip-text text-transparent drop-shadow-sm">
-					ECHO
+					ECHO 2.0
 				</span>
 			</h1>
 			
 			<!-- Subtitle -->
-			<p class="text-2xl md:text-3xl text-teal-700 font-light mb-10 max-w-4xl mx-auto leading-relaxed">
+			<p class="text-2xl md:text-3xl text-teal-700 font-light mb-6 max-w-4xl mx-auto leading-relaxed">
 				Education, Community, and Housing Open Data Dashboard
 			</p>
+			
+			<!-- New America Attribution -->
+			<a 
+				href="https://www.newamerica.org/prek-12-education/education-funding-equity/about/" 
+				target="_blank" 
+				rel="noopener noreferrer"
+				class="inline-block text-lg md:text-xl text-teal-600 font-medium mb-10 hover:text-teal-700 transition-all duration-300 transform hover:scale-105 no-underline"
+			>
+				A product of the Education Funding Equity Initiative
+			</a>
+			
+			<!-- Network Graphic -->
+			<div class="mb-10">
+				<img 
+					src="/echo-network-graphic.png" 
+					alt="ECHO Network Visualization" 
+					class="mx-auto max-w-full h-auto opacity-90 hover:opacity-100 transition-opacity duration-300"
+					style="max-height: 400px;"
+				/>
+			</div>
 		</div>
 	</div>
 
@@ -201,21 +223,25 @@
 				</p>
 			</div>
 			
-			
 			<div class="grid grid-cols-1 md:grid-cols-3 gap-16">
 				<!-- Step 1: Interactive Geographic Level Selection -->
-				<Card variant="floating" padding="lg" hover={true}>
+				<div 
+					in:fly={{ y: 50, duration: 600, delay: 100 }}
+					class="transform"
+				>
+					<div class="bg-gradient-to-br from-white via-white to-teal-50/30 rounded-2xl shadow-floating border border-teal-200/30 backdrop-blur-sm p-8 hover:shadow-luxury transition-all duration-300 group">
 					<div class="text-center">
 						<div class="relative mb-10">
-							<div class="w-40 h-40 bg-gradient-to-br from-teal-100 via-teal-50 to-emerald-50 rounded-3xl mx-auto mb-8 flex items-center justify-center shadow-luxury group-hover:shadow-floating transition-all duration-500 border border-teal-200/50">
-								<svg class="w-20 h-20 text-teal-800" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2-2V7a2 2 0 012-2h2a2 2 0 002 2v2a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 00-2 2h-2a2 2 0 00-2 2v6a2 2 0 01-2 2H9a2 2 0 01-2-2z" />
+							<div class="w-40 h-40 bg-gradient-to-br from-teal-100 to-teal-200 rounded-3xl mx-auto mb-8 flex items-center justify-center shadow-elegant group-hover:shadow-luxury transition-all duration-500 border border-teal-300/50">
+								<svg class="w-20 h-20 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
 								</svg>
 							</div>
-							<div class="w-16 h-16 bg-gradient-to-r from-teal-700 to-teal-800 text-white rounded-2xl flex items-center justify-center mx-auto mb-8 font-bold text-2xl shadow-elegant relative">
+							<div class="w-16 h-16 bg-gradient-to-r from-teal-600 to-teal-700 text-white rounded-xl flex items-center justify-center mx-auto mb-8 font-bold text-2xl shadow-luxury relative">
 								1
 								{#if $stepCompletion.step1}
-									<div class="absolute -top-2 -right-2 w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
+									<div class="absolute -top-2 -right-2 w-6 h-6 bg-emerald-500 rounded-full flex items-center justify-center shadow-elegant">
 										<svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
 										</svg>
@@ -223,8 +249,8 @@
 								{/if}
 							</div>
 						</div>
-						<h3 class="text-3xl font-bold text-slate-900 mb-6">Select Geographic Level</h3>
-						<p class="text-slate-600 leading-relaxed text-lg mb-8">
+						<h3 class="text-3xl font-bold text-teal-900 mb-6">Select Geography</h3>
+						<p class="text-teal-700 leading-relaxed text-lg mb-8 font-medium">
 							Choose from school districts, counties, legislative districts, or census tracts
 						</p>
 						
@@ -270,21 +296,26 @@
 							{/if}
 						</div>
 					</div>
-				</Card>
+					</div>
+				</div>
 
 				<!-- Step 2: Variable Selection -->
-				<Card variant="floating" padding="lg" hover={true}>
+				<div 
+					in:fly={{ y: 50, duration: 600, delay: 200 }}
+					class="transform"
+				>
+					<div class="bg-gradient-to-br from-white via-white to-emerald-50/30 rounded-2xl shadow-floating border border-emerald-200/30 backdrop-blur-sm p-8 hover:shadow-luxury transition-all duration-300 group">
 					<div class="text-center">
 						<div class="relative mb-10">
-							<div class="w-40 h-40 bg-gradient-to-br from-emerald-100 via-emerald-50 to-teal-50 rounded-3xl mx-auto mb-8 flex items-center justify-center shadow-luxury group-hover:shadow-floating transition-all duration-500 border border-emerald-200/50">
-								<svg class="w-20 h-20 text-emerald-800" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+							<div class="w-40 h-40 bg-gradient-to-br from-emerald-100 to-emerald-200 rounded-3xl mx-auto mb-8 flex items-center justify-center shadow-elegant group-hover:shadow-luxury transition-all duration-500 border border-emerald-300/50">
+								<svg class="w-20 h-20 text-emerald-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
 								</svg>
 							</div>
-							<div class="w-16 h-16 bg-gradient-to-r from-emerald-700 to-emerald-800 text-white rounded-2xl flex items-center justify-center mx-auto mb-8 font-bold text-2xl shadow-elegant relative">
+							<div class="w-16 h-16 bg-gradient-to-r from-emerald-600 to-emerald-700 text-white rounded-xl flex items-center justify-center mx-auto mb-8 font-bold text-2xl shadow-luxury relative">
 								2
 								{#if $stepCompletion.step2}
-									<div class="absolute -top-2 -right-2 w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
+									<div class="absolute -top-2 -right-2 w-6 h-6 bg-emerald-500 rounded-full flex items-center justify-center shadow-elegant">
 										<svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
 										</svg>
@@ -292,8 +323,8 @@
 								{/if}
 							</div>
 						</div>
-						<h3 class="text-3xl font-bold text-slate-900 mb-6">Select Variables</h3>
-						<p class="text-slate-600 leading-relaxed text-lg mb-8">
+						<h3 class="text-3xl font-bold text-emerald-900 mb-6">Select Variables</h3>
+						<p class="text-emerald-700 leading-relaxed text-lg mb-8 font-medium">
 							Choose the data variables you want to explore and analyze
 						</p>
 						
@@ -315,21 +346,27 @@
 							{/if}
 						</div>
 					</div>
-				</Card>
+					</div>
+				</div>
 
 				<!-- Step 3: View Selection -->
-				<Card variant="floating" padding="lg" hover={true}>
+				<div 
+					in:fly={{ y: 50, duration: 600, delay: 300 }}
+					class="transform"
+				>
+					<div class="bg-gradient-to-br from-white via-white to-slate-50/30 rounded-2xl shadow-floating border border-slate-200/30 backdrop-blur-sm p-8 hover:shadow-luxury transition-all duration-300 group">
 					<div class="text-center">
 						<div class="relative mb-10">
-							<div class="w-40 h-40 bg-gradient-to-br from-slate-100 via-slate-50 to-teal-50 rounded-3xl mx-auto mb-8 flex items-center justify-center shadow-luxury group-hover:shadow-floating transition-all duration-500 border border-slate-200/50">
-								<svg class="w-20 h-20 text-slate-800" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2-2V7a2 2 0 012-2h2a2 2 0 002 2v2a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 00-2 2h-2a2 2 0 00-2 2v6a2 2 0 01-2 2H9a2 2 0 01-2-2z" />
+							<div class="w-40 h-40 bg-gradient-to-br from-slate-100 to-slate-200 rounded-3xl mx-auto mb-8 flex items-center justify-center shadow-elegant group-hover:shadow-luxury transition-all duration-500 border border-slate-300/50">
+								<svg class="w-20 h-20 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
 								</svg>
 							</div>
-							<div class="w-16 h-16 bg-gradient-to-r from-slate-700 to-slate-800 text-white rounded-2xl flex items-center justify-center mx-auto mb-8 font-bold text-2xl shadow-elegant relative">
+							<div class="w-16 h-16 bg-gradient-to-r from-slate-600 to-slate-700 text-white rounded-xl flex items-center justify-center mx-auto mb-8 font-bold text-2xl shadow-luxury relative">
 								3
 								{#if $stepCompletion.step3}
-									<div class="absolute -top-2 -right-2 w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
+									<div class="absolute -top-2 -right-2 w-6 h-6 bg-emerald-500 rounded-full flex items-center justify-center shadow-elegant">
 										<svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
 										</svg>
@@ -338,19 +375,24 @@
 							</div>
 						</div>
 						<h3 class="text-3xl font-bold text-slate-900 mb-6">Select View</h3>
-						<p class="text-slate-600 leading-relaxed text-lg mb-8">
+						<p class="text-slate-700 leading-relaxed text-lg mb-8 font-medium">
 							Choose how you want to visualize and analyze your data
 						</p>
 						
 						<!-- View Selection Buttons -->
 						<div class="mt-6 space-y-3">
 							<button
-								class="w-full text-left p-4 rounded-xl border-2 transition-all duration-200 {$selectedView === 'map' ? 'border-teal-500 bg-teal-50' : 'border-slate-200 hover:border-slate-300'}"
+								class="w-full text-left p-4 bg-white/80 backdrop-blur-sm border border-slate-200/60 rounded-xl hover:bg-white hover:shadow-elegant transition-all duration-300 {$selectedView === 'map' ? 'border-teal-500 bg-teal-50/80' : 'hover:border-slate-300'}"
 								on:click={() => selectView('map')}
 							>
 								<div class="flex items-center">
-									<span class="text-2xl mr-3">🗺️</span>
-									<div>
+									<div class="w-8 h-8 rounded-lg bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center mr-3 shadow-elegant">
+										<svg class="w-4 h-4 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+										</svg>
+									</div>
+									<div class="flex-1">
 										<div class="font-semibold text-slate-900">Map View</div>
 										<div class="text-sm text-slate-600">Interactive choropleth maps</div>
 									</div>
@@ -363,12 +405,16 @@
 							</button>
 							
 							<button
-								class="w-full text-left p-4 rounded-xl border-2 transition-all duration-200 {$selectedView === 'table' ? 'border-teal-500 bg-teal-50' : 'border-slate-200 hover:border-slate-300'}"
+								class="w-full text-left p-4 bg-white/80 backdrop-blur-sm border border-slate-200/60 rounded-xl hover:bg-white hover:shadow-elegant transition-all duration-300 {$selectedView === 'table' ? 'border-teal-500 bg-teal-50/80' : 'hover:border-slate-300'}"
 								on:click={() => selectView('table')}
 							>
 								<div class="flex items-center">
-									<span class="text-2xl mr-3">📊</span>
-									<div>
+									<div class="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-100 to-emerald-200 flex items-center justify-center mr-3 shadow-elegant">
+										<svg class="w-4 h-4 text-emerald-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-4v8m-7 0V4a1 1 0 011-1h12a1 1 0 011 1v16a1 1 0 01-1 1H4a1 1 0 01-1-1z"/>
+										</svg>
+									</div>
+									<div class="flex-1">
 										<div class="font-semibold text-slate-900">Table View</div>
 										<div class="text-sm text-slate-600">Comprehensive data tables</div>
 									</div>
@@ -381,12 +427,16 @@
 							</button>
 							
 							<button
-								class="w-full text-left p-4 rounded-xl border-2 transition-all duration-200 {$selectedView === 'chart' ? 'border-teal-500 bg-teal-50' : 'border-slate-200 hover:border-slate-300'}"
+								class="w-full text-left p-4 bg-white/80 backdrop-blur-sm border border-slate-200/60 rounded-xl hover:bg-white hover:shadow-elegant transition-all duration-300 {$selectedView === 'chart' ? 'border-teal-500 bg-teal-50/80' : 'hover:border-slate-300'}"
 								on:click={() => selectView('chart')}
 							>
 								<div class="flex items-center">
-									<span class="text-2xl mr-3">📈</span>
-									<div>
+									<div class="w-8 h-8 rounded-lg bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center mr-3 shadow-elegant">
+										<svg class="w-4 h-4 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+										</svg>
+									</div>
+									<div class="flex-1">
 										<div class="font-semibold text-slate-900">Chart View</div>
 										<div class="text-sm text-slate-600">Data visualizations</div>
 									</div>
@@ -399,7 +449,8 @@
 							</button>
 						</div>
 					</div>
-				</Card>
+					</div>
+				</div>
 			</div>
 		</section>
 
@@ -595,16 +646,26 @@
 	</div>
 
 	<!-- Footer -->
-	<footer class="bg-slate-900 text-white py-16">
+	<footer class="bg-gradient-to-br from-slate-50 via-white to-teal-50 border-t border-slate-200 py-16">
 		<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
 			<div class="mb-8">
-				<div class="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-teal-600 to-teal-700 rounded-2xl mb-6">
+				<div class="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-teal-600 to-teal-700 rounded-2xl mb-6 shadow-lg">
 					<svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2-2V7a2 2 0 012-2h2a2 2 0 002 2v2a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 00-2 2h-2a2 2 0 00-2 2v6a2 2 0 01-2 2H9a2 2 0 01-2-2z" />
 					</svg>
 				</div>
 			</div>
-			<p class="text-slate-400 mb-6 text-lg">
+			<p class="text-slate-700 mb-6 text-lg">
+				Developed by <a 
+					href="https://www.newamerica.org/prek-12-education/education-funding-equity/about/" 
+					target="_blank" 
+					rel="noopener noreferrer"
+					class="text-teal-700 hover:text-teal-800 transition-colors duration-200 underline font-medium"
+				>
+					New America's Education Funding Equity Initiative
+				</a>
+			</p>
+			<p class="text-slate-600 mb-6">
 				Built with ❤️ using SvelteKit, TypeScript, and Tailwind CSS
 			</p>
 			<div class="flex justify-center space-x-6">

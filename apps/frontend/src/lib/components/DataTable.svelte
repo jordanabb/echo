@@ -4,6 +4,7 @@
 	import { 
 		unifiedFilters,
 		currentGeoLevel,
+		currentGeoFilter,
 		currentYears,
 		currentSelectedIndicators,
 		selectedIndicatorsWithMetadata,
@@ -11,8 +12,12 @@
 	} from '$lib/stores/unifiedFilters';
 	import { crossfade } from 'svelte/transition';
 	import { quintOut } from 'svelte/easing';
+	import { formatValueByType } from '$lib/utils';
 	import Card from './Card.svelte';
 	import Button from './Button.svelte';
+	import SkeletonLoader from './SkeletonLoader.svelte';
+	import EmptyState from './EmptyState.svelte';
+	import LoadingSpinner from './LoadingSpinner.svelte';
 	
 	// Component state
 	let isLoading = false;
@@ -45,7 +50,7 @@
 	}
 	
 	// Function to fetch all geo_ids for a given geography level and year
-	async function fetchGeoIds(geoLevel: string, year: number): Promise<string[]> {
+	async function fetchGeoIds(geoLevel: string, year: number, stateFilter?: string | null): Promise<string[]> {
 		try {
 			const params = new URLSearchParams({
 				indicator: 'total_population', // Use a common indicator to get all geo_ids
@@ -53,6 +58,13 @@
 				year: year.toString()
 			});
 			
+			// Add state filter if provided
+			if (stateFilter) {
+				params.set('state_filter', stateFilter);
+				console.log('DataTable: Adding state filter:', stateFilter);
+			}
+			
+			console.log('DataTable: Fetching geo_ids with URL:', `/api/map-view?${params}`);
 			const response = await fetch(`/api/map-view?${params}`);
 			
 			if (!response.ok) {
@@ -84,7 +96,7 @@
 			
 			// Fetch geo_ids for each year (in case different years have different geographies)
 			for (const year of $currentYears) {
-				const yearGeoIds = await fetchGeoIds($currentGeoLevel, year);
+				const yearGeoIds = await fetchGeoIds($currentGeoLevel, year, $currentGeoFilter);
 				yearGeoIds.forEach(id => allGeoIds.add(id));
 			}
 			
@@ -260,6 +272,11 @@
 		debounceApiCall(fetchTableData, DEBOUNCE_DELAY);
 	}
 	
+	// Reactive statement to refetch data when state filter changes
+	$: if (browser && $isAnalysisReady && $currentGeoFilter !== undefined) {
+		debounceApiCall(fetchTableData, DEBOUNCE_DELAY);
+	}
+	
 	// Clean up debounce timer on component destroy
 	onDestroy(() => {
 		if (debounceTimer) {
@@ -267,26 +284,33 @@
 		}
 	});
 	
-	// Function to format cell values
-	function formatCellValue(value: any): string {
+	// Function to format cell values with smart type detection
+	function formatCellValue(value: any, columnName: string): string {
 		if (value === null || value === undefined) {
 			return '—';
 		}
 		
-		if (typeof value === 'number') {
-			// Always round to exactly 2 decimal places for consistency
-			return value.toLocaleString(undefined, { 
-				minimumFractionDigits: 2, 
-				maximumFractionDigits: 2 
-			});
+		// Skip formatting for non-numeric columns
+		if (['geo_id', 'geo_name', 'year'].includes(columnName)) {
+			return String(value);
 		}
 		
-		return String(value);
+		// Get indicator metadata for better formatting context
+		let indicatorName = '';
+		if ($selectedIndicatorsWithMetadata) {
+			const indicator = $selectedIndicatorsWithMetadata.find(ind => ind.id === columnName);
+			if (indicator) {
+				indicatorName = indicator.name;
+			}
+		}
+		
+		// Use the smart formatting function
+		return formatValueByType(value, columnName, indicatorName);
 	}
 	
 	// Function to get column header display name
 	function getColumnDisplayName(columnName: string): string {
-		// Convert snake_case to Title Case and handle special cases
+		// Handle special cases first
 		const specialCases: Record<string, string> = {
 			'geo_id': 'Geography ID',
 			'geo_name': 'Geography Name',
@@ -297,7 +321,15 @@
 			return specialCases[columnName];
 		}
 		
-		// Convert snake_case to Title Case
+		// Try to get the display name from indicator metadata
+		if ($selectedIndicatorsWithMetadata) {
+			const indicator = $selectedIndicatorsWithMetadata.find(ind => ind.id === columnName);
+			if (indicator) {
+				return indicator.name;
+			}
+		}
+		
+		// Fallback: Convert snake_case to Title Case
 		return columnName
 			.split('_')
 			.map(word => word.charAt(0).toUpperCase() + word.slice(1))
@@ -334,19 +366,28 @@
 	}
 </script>
 
-<Card variant="default" padding="none">
+<div class="bg-gradient-to-br from-white via-white to-teal-50/30 rounded-2xl shadow-floating border border-teal-200/30 backdrop-blur-sm">
 	<div class="relative">
 		<!-- Header -->
-		<div class="px-6 py-4 border-b border-gray-200">
-			<h3 class="text-lg font-semibold text-gray-900">Data Table</h3>
-			<p class="text-sm text-gray-600 mt-1">
-				{#if $isAnalysisReady}
-					Showing data for {$currentSelectedIndicators.length} indicator{$currentSelectedIndicators.length !== 1 ? 's' : ''} 
-					across {$currentYears.length} year{$currentYears.length !== 1 ? 's' : ''}
-				{:else}
-					Select indicators, geography level, and years to view data
-				{/if}
-			</p>
+		<div class="px-6 py-5 border-b border-teal-200/40 bg-gradient-to-r from-white via-teal-50/20 to-white rounded-t-2xl">
+			<div class="flex items-center space-x-3">
+				<div class="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center shadow-elegant">
+					<svg class="w-5 h-5 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-4v8m-7 0V4a1 1 0 011-1h12a1 1 0 011 1v16a1 1 0 01-1 1H4a1 1 0 01-1-1z"/>
+					</svg>
+				</div>
+				<div>
+					<h3 class="text-xl font-bold text-teal-900">Data Table</h3>
+					<p class="text-sm text-teal-700 mt-0.5">
+						{#if $isAnalysisReady}
+							Showing data for {$currentSelectedIndicators.length} indicator{$currentSelectedIndicators.length !== 1 ? 's' : ''} 
+							across {$currentYears.length} year{$currentYears.length !== 1 ? 's' : ''}
+						{:else}
+							Select indicators, geography level, and years to view data
+						{/if}
+					</p>
+				</div>
+			</div>
 		</div>
 		
 		<!-- Content -->
@@ -354,68 +395,71 @@
 			<!-- Loading overlay -->
 			{#if isLoading}
 				<div 
-					class="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center z-30"
+					class="absolute inset-0 bg-white bg-opacity-90 backdrop-blur-sm flex items-center justify-center z-30"
 					in:receive={{ key: 'loading' }}
 					out:send={{ key: 'loading' }}
 				>
-					<div class="flex items-center space-x-3">
-						<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-						<span class="text-gray-700 font-medium">Loading table data...</span>
-					</div>
+					<LoadingSpinner 
+						variant="ring" 
+						size="lg" 
+						color="primary" 
+						text="Loading table data..." 
+					/>
 				</div>
 			{/if}
 			
 			<!-- Error state -->
 			{#if error}
 				<div 
-					class="p-8 text-center"
 					in:receive={{ key: 'error' }}
 					out:send={{ key: 'error' }}
 				>
-					<div class="text-red-600 text-xl mb-2">⚠️</div>
-					<h4 class="text-red-800 font-semibold mb-2">Error Loading Data</h4>
-					<p class="text-red-700 text-sm mb-4">{error}</p>
-					<button 
-						class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+					<EmptyState 
+						variant="error"
+						title="Error Loading Data"
+						description={error}
+						actionText="Try Again"
 						on:click={fetchTableData}
-					>
-						Retry
-					</button>
+					/>
 				</div>
 			{/if}
 			
 			<!-- No data state -->
 			{#if !isLoading && !error && tableData.length === 0 && $isAnalysisReady}
-				<div class="p-8 text-center">
-					<div class="text-gray-400 text-xl mb-2">📊</div>
-					<h4 class="text-gray-700 font-semibold mb-2">No Data Available</h4>
-					<p class="text-gray-600 text-sm">
-						No data available for this selection. Please try a different year or indicator.
-					</p>
-				</div>
+				<EmptyState 
+					variant="data"
+					title="No Data Available"
+					description="No data available for this selection. Please try a different year or indicator."
+					actionText="Adjust Filters"
+					showAction={false}
+				/>
 			{/if}
 			
 			<!-- Selection prompt -->
 			{#if !$isAnalysisReady && !isLoading}
-				<div class="p-8 text-center">
-					<div class="text-gray-400 text-xl mb-2">🔍</div>
-					<h4 class="text-gray-700 font-semibold mb-2">Make Your Selection</h4>
-					<p class="text-gray-600 text-sm">
-						Please select indicators, geography level, and years to view the data table.
-					</p>
-				</div>
+				<EmptyState 
+					variant="selection"
+					title="Configure Your Analysis"
+					description="Select indicators, geography level, and years to view the data table."
+					actionText="Open Variable Selector"
+					on:click={() => {
+						// Dispatch event to open variable selector
+						const event = new CustomEvent('openVariableSelector');
+						document.dispatchEvent(event);
+					}}
+				/>
 			{/if}
 			
 			<!-- Data table -->
 			{#if !isLoading && !error && tableData.length > 0}
 				<!-- Table controls -->
-				<div class="px-6 py-4 border-b border-gray-200 bg-gray-50">
+				<div class="px-6 py-4 border-b border-teal-200/40 bg-gradient-to-r from-teal-50/20 via-white/50 to-teal-50/20">
 					<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
 						<!-- Search input -->
 						<div class="flex-1 max-w-md">
 							<div class="relative">
-								<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-									<svg class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+									<svg class="h-5 w-5 text-teal-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
 									</svg>
 								</div>
@@ -423,14 +467,14 @@
 									type="text"
 									bind:value={searchTerm}
 									placeholder="Search by geography name..."
-									class="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm"
+									class="block w-full pl-12 pr-12 py-3 bg-white/80 backdrop-blur-sm border border-teal-200/60 rounded-xl text-sm placeholder-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 hover:bg-white hover:shadow-elegant transition-all duration-300 text-teal-800 font-medium"
 								/>
 								{#if searchTerm}
 									<button
 										on:click={() => searchTerm = ''}
-										class="absolute inset-y-0 right-0 pr-3 flex items-center"
+										class="absolute inset-y-0 right-0 pr-4 flex items-center text-teal-400 hover:text-teal-600 transition-colors"
 									>
-										<svg class="h-4 w-4 text-gray-400 hover:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
 										</svg>
 									</button>
@@ -492,7 +536,7 @@
 									{#each columns as column}
 										<td class={getColumnClasses(column)}>
 											<span class="text-sm text-gray-900">
-												{formatCellValue(row[column])}
+												{formatCellValue(row[column], column)}
 											</span>
 										</td>
 									{/each}
@@ -503,21 +547,27 @@
 				</div>
 				
 				<!-- Table footer with row count -->
-				<div class="px-6 py-3 border-t border-gray-200 bg-gray-50">
+				<div class="px-6 py-4 border-t border-teal-200/40 bg-gradient-to-r from-white via-teal-50/20 to-white rounded-b-2xl">
 					<div class="flex items-center justify-between">
-						<p class="text-sm text-gray-600">
-							{#if searchTerm || sortColumn}
-								Showing {filteredData.length} of {tableData.length} row{tableData.length !== 1 ? 's' : ''}
-							{:else}
-								Showing {tableData.length} row{tableData.length !== 1 ? 's' : ''}
-							{/if}
-						</p>
+						<div class="flex items-center space-x-2">
+							<div class="w-2 h-2 bg-teal-600 rounded-full"></div>
+							<p class="text-sm font-medium text-teal-700">
+								{#if searchTerm || sortColumn}
+									Showing <strong class="text-teal-900">{filteredData.length}</strong> of <strong class="text-teal-900">{tableData.length}</strong> row{tableData.length !== 1 ? 's' : ''}
+								{:else}
+									Showing <strong class="text-teal-900">{tableData.length}</strong> row{tableData.length !== 1 ? 's' : ''}
+								{/if}
+							</p>
+						</div>
 						
 						{#if searchTerm || sortColumn}
 							<button
 								on:click={() => { searchTerm = ''; sortColumn = null; }}
-								class="text-sm text-blue-600 hover:text-blue-800 font-medium"
+								class="text-sm text-teal-600 hover:text-teal-800 font-semibold bg-white/60 backdrop-blur-sm border border-teal-200/60 rounded-lg px-3 py-1.5 hover:bg-white hover:shadow-elegant transition-all duration-300"
 							>
+								<svg class="w-3 h-3 mr-1.5 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+								</svg>
 								Clear filters
 							</button>
 						{/if}
@@ -526,4 +576,4 @@
 			{/if}
 		</div>
 	</div>
-</Card>
+</div>

@@ -182,6 +182,7 @@ def get_map_view_data(
     sql_query = text(f"""
         SELECT DISTINCT ON (g.geo_id) 
                g.geo_id, 
+               g.geo_name,
                g.geo_level,
                g.year as geo_year,
                g.geometry, 
@@ -253,8 +254,8 @@ def get_map_view_data(
     legend_entries.append(schemas.LegendEntry(label="No Data", color=NO_DATA_COLOR))
     
     # Prepare the final payload
-    # Convert GeoDataFrame to a GeoJSON dictionary (exclude debug columns)
-    geo_json_dict = json.loads(gdf[['geo_id', 'geometry']].to_json())
+    # Convert GeoDataFrame to a GeoJSON dictionary (include geo_name)
+    geo_json_dict = json.loads(gdf[['geo_id', 'geo_name', 'geometry']].to_json())
 
     # Normalize geo_ids in the response data
     response_data = [

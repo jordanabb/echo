@@ -92,6 +92,70 @@ export function formatNumber(num: number): string {
 }
 
 /**
+ * Formats a value based on its type (percentage, currency, or count)
+ */
+export function formatValueByType(value: any, columnName: string, indicatorName?: string): string {
+	if (value === null || value === undefined) {
+		return '—';
+	}
+	
+	if (typeof value !== 'number') {
+		return String(value);
+	}
+	
+	// Determine format type based on column name or indicator name
+	const name = (indicatorName || columnName).toLowerCase();
+	
+	// Check for percentage indicators
+	if (name.includes('%') || name.includes('percent') || name.includes('rate')) {
+		return formatPercentage(value);
+	}
+	
+	// Check for dollar/currency indicators
+	if (name.includes('$') || name.includes('revenue') || name.includes('income') || 
+		name.includes('value') || name.includes('allocation')) {
+		return formatCurrency(value);
+	}
+	
+	// Check for count/population indicators (should be integers)
+	if (name.includes('population') || name.includes('enrollment') || name.includes('total')) {
+		return formatCount(value);
+	}
+	
+	// Default formatting for other numeric values
+	return formatNumber(value);
+}
+
+/**
+ * Formats a number as a percentage with % symbol
+ */
+export function formatPercentage(value: number): string {
+	return `${value.toLocaleString('en-US', { 
+		minimumFractionDigits: 1, 
+		maximumFractionDigits: 1 
+	})}%`;
+}
+
+/**
+ * Formats a number as currency with $ symbol
+ */
+export function formatCurrency(value: number): string {
+	return new Intl.NumberFormat('en-US', {
+		style: 'currency',
+		currency: 'USD',
+		minimumFractionDigits: 0,
+		maximumFractionDigits: 0
+	}).format(value);
+}
+
+/**
+ * Formats a number as an integer count (no decimal places)
+ */
+export function formatCount(value: number): string {
+	return Math.round(value).toLocaleString('en-US');
+}
+
+/**
  * Converts a string to kebab-case
  */
 export function toKebabCase(str: string): string {

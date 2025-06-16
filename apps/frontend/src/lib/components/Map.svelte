@@ -17,6 +17,7 @@
 	import { quintOut } from 'svelte/easing';
 	import Legend from './Legend.svelte';
 	import MapControlPanel from './MapControlPanel.svelte';
+	import MapTooltip from './MapTooltip.svelte';
 	
 	// Mapbox imports
 	let mapboxgl: any;
@@ -36,6 +37,19 @@
 	// Map display state (separate from global selection)
 	let mapDisplayYear: number | null = null;
 	let mapDisplayIndicator: string | null = null;
+	
+	// Tooltip state
+	let hoverTooltip = {
+		isVisible: false,
+		feature: null,
+		position: { x: 0, y: 0 }
+	};
+	
+	let clickTooltip = {
+		isVisible: false,
+		feature: null,
+		position: { x: 0, y: 0 }
+	};
 
 	// Initialize map display values from store
 	$: mapDisplayYear = $currentMapDisplayYear;
@@ -441,13 +455,16 @@
 				}
 			});
 			
-			// Add hover effects
+			// Add hover effects and tooltip functionality
 			let hoveredFeatureId: string | null = null;
 			
 			map.on('mouseenter', 'choropleth-layer', (e: any) => {
 				map.getCanvas().style.cursor = 'pointer';
 				
 				if (e.features.length > 0) {
+					const feature = e.features[0];
+					
+					// Update hover state
 					if (hoveredFeatureId !== null) {
 						map.setFeatureState(
 							{ source: 'choropleth-data', id: hoveredFeatureId },
@@ -455,17 +472,62 @@
 						);
 					}
 					
-					hoveredFeatureId = e.features[0].id;
+					hoveredFeatureId = feature.id;
 					map.setFeatureState(
 						{ source: 'choropleth-data', id: hoveredFeatureId },
 						{ hover: true }
 					);
+					
+					// Show hover tooltip
+					const rect = mapContainer.getBoundingClientRect();
+					hoverTooltip = {
+						isVisible: true,
+						feature: feature,
+						position: {
+							x: e.point.x + rect.left,
+							y: e.point.y + rect.top
+						}
+					};
+				}
+			});
+			
+			map.on('mousemove', 'choropleth-layer', (e: any) => {
+				if (e.features.length > 0) {
+					const feature = e.features[0];
+					const rect = mapContainer.getBoundingClientRect();
+					
+					// Update hover tooltip with new feature and position
+					hoverTooltip = {
+						isVisible: true,
+						feature: feature,
+						position: {
+							x: e.point.x + rect.left,
+							y: e.point.y + rect.top
+						}
+					};
+					
+					// Update hover state if feature changed
+					if (hoveredFeatureId !== feature.id) {
+						if (hoveredFeatureId !== null) {
+							map.setFeatureState(
+								{ source: 'choropleth-data', id: hoveredFeatureId },
+								{ hover: false }
+							);
+						}
+						
+						hoveredFeatureId = feature.id;
+						map.setFeatureState(
+							{ source: 'choropleth-data', id: hoveredFeatureId },
+							{ hover: true }
+						);
+					}
 				}
 			});
 			
 			map.on('mouseleave', 'choropleth-layer', () => {
 				map.getCanvas().style.cursor = '';
 				
+				// Clear hover state
 				if (hoveredFeatureId !== null) {
 					map.setFeatureState(
 						{ source: 'choropleth-data', id: hoveredFeatureId },
@@ -473,31 +535,51 @@
 					);
 				}
 				hoveredFeatureId = null;
+				
+				// Hide hover tooltip
+				hoverTooltip = {
+					isVisible: false,
+					feature: null,
+					position: { x: 0, y: 0 }
+				};
 			});
 			
-			// Add click handler for feature details
+			// Add click handler for detailed tooltip
 			map.on('click', 'choropleth-layer', (e: any) => {
 				if (e.features.length > 0) {
 					const feature = e.features[0];
-					const props = feature.properties;
+					const rect = mapContainer.getBoundingClientRect();
 					
-					// Create popup content
-					const popupContent = `
-						<div class="p-3">
-							<h3 class="font-semibold text-lg mb-2">${props.geo_name || props.geo_id}</h3>
-							<p class="text-sm text-gray-600 mb-1">
-								<strong>Value:</strong> ${props.value !== null ? Number(props.value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'No data'}
-							</p>
-							<p class="text-sm text-gray-600">
-								<strong>Geography ID:</strong> ${props.geo_id}
-							</p>
-						</div>
-					`;
+					// Hide hover tooltip when showing click tooltip
+					hoverTooltip = {
+						isVisible: false,
+						feature: null,
+						position: { x: 0, y: 0 }
+					};
 					
-					new mapboxgl.Popup()
-						.setLngLat(e.lngLat)
-						.setHTML(popupContent)
-						.addTo(map);
+					// Show click tooltip (always replace any existing one)
+					clickTooltip = {
+						isVisible: true,
+						feature: feature,
+						position: {
+							x: e.point.x + rect.left,
+							y: e.point.y + rect.top
+						}
+					};
+				}
+			});
+			
+			// Hide click tooltip when clicking elsewhere on the map
+			map.on('click', (e: any) => {
+				// Check if click was on a feature
+				const features = map.queryRenderedFeatures(e.point, { layers: ['choropleth-layer'] });
+				if (features.length === 0) {
+					// Clicked on empty area, hide click tooltip
+					clickTooltip = {
+						isVisible: false,
+						feature: null,
+						position: { x: 0, y: 0 }
+					};
 				}
 			});
 			
@@ -741,6 +823,40 @@
 			</div>
 		</div>
 	{/if}
+	
+	<!-- Hover Tooltip -->
+	<MapTooltip
+		feature={hoverTooltip.feature}
+		position={hoverTooltip.position}
+		isVisible={hoverTooltip.isVisible}
+		isHover={true}
+		currentIndicatorId={mapDisplayIndicator}
+		currentYear={mapDisplayYear}
+		on:close={() => {
+			hoverTooltip = {
+				isVisible: false,
+				feature: null,
+				position: { x: 0, y: 0 }
+			};
+		}}
+	/>
+	
+	<!-- Click Tooltip -->
+	<MapTooltip
+		feature={clickTooltip.feature}
+		position={clickTooltip.position}
+		isVisible={clickTooltip.isVisible}
+		isHover={false}
+		currentIndicatorId={mapDisplayIndicator}
+		currentYear={mapDisplayYear}
+		on:close={() => {
+			clickTooltip = {
+				isVisible: false,
+				feature: null,
+				position: { x: 0, y: 0 }
+			};
+		}}
+	/>
 </div>
 
 <style>

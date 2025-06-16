@@ -4,6 +4,7 @@
 	import { 
 		unifiedFilters,
 		currentGeoLevel,
+		currentGeoFilter,
 		currentPrimaryYear,
 		currentYears,
 		currentSelectedIndicators,
@@ -13,6 +14,7 @@
 	} from '$lib/stores/unifiedFilters';
 	import { crossfade } from 'svelte/transition';
 	import { quintOut } from 'svelte/easing';
+	import { formatValueByType } from '$lib/utils';
 	import Card from './Card.svelte';
 	import Button from './Button.svelte';
 	import GeographicUnitSelector from './GeographicUnitSelector.svelte';
@@ -44,28 +46,28 @@
 			id: 'bar',
 			title: 'Compare Values Across Geographies',
 			description: 'Perfect for comparing indicator values between different locations',
-			icon: '📊',
+			icon: 'M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z',
 			useCase: 'Bar Chart'
 		},
 		{
 			id: 'scatter',
 			title: 'Explore Relationship Between Variables',
 			description: 'Discover correlations and patterns between two indicators',
-			icon: '🔍',
+			icon: 'M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z',
 			useCase: 'Scatter Plot'
 		},
 		{
 			id: 'line',
 			title: 'Track Changes Over Time',
 			description: 'Visualize trends and changes in indicators across years',
-			icon: '📈',
+			icon: 'M3 17l6-6 4 4 8-8',
 			useCase: 'Line Chart'
 		},
 		{
 			id: 'pie',
 			title: 'Show Composition Breakdowns',
 			description: 'Display revenue sources, student demographics, or community demographics as parts of a whole',
-			icon: '🥧',
+			icon: 'M21.21 15.89A10 10 0 118 2.83M22 12A10 10 0 0012 2v10z',
 			useCase: 'Pie Chart'
 		}
 	];
@@ -750,9 +752,18 @@
 							const dataPoint = context.parsed;
 							const labels = [];
 							
-							// Helper function to format numbers to 2 decimal places
-							const formatNumber = (value: any) => {
+							// Helper function to format numbers using standardized formatting
+							const formatNumber = (value: any, indicatorId?: string) => {
 								if (value == null || isNaN(value)) return 'N/A';
+								
+								// Use standardized formatting if indicator ID is provided
+								if (indicatorId) {
+									const indicator = $selectedIndicatorsWithMetadata.find(ind => ind.id === indicatorId);
+									const indicatorName = indicator ? indicator.name : '';
+									return formatValueByType(value, indicatorId, indicatorName);
+								}
+								
+								// Fallback to basic number formatting
 								return Number(value).toLocaleString(undefined, { 
 									minimumFractionDigits: 2, 
 									maximumFractionDigits: 2 
@@ -762,29 +773,25 @@
 							switch (chartType) {
 								case 'bar':
 									const cleanYAxisName = getIndicatorDisplayName(yAxisVariable);
-									labels.push(`${cleanYAxisName}: ${formatNumber(dataPoint.y) || formatNumber(context.raw)}`);
+									labels.push(`${cleanYAxisName}: ${formatNumber(dataPoint.y || context.raw, yAxisVariable)}`);
 									break;
 								case 'scatter':
 									const cleanXAxisName = getIndicatorDisplayName(xAxisVariable);
 									const cleanYAxisNameScatter = getIndicatorDisplayName(yAxisVariable);
-									labels.push(`${cleanXAxisName}: ${formatNumber(dataPoint.x)}`);
-									labels.push(`${cleanYAxisNameScatter}: ${formatNumber(dataPoint.y)}`);
+									labels.push(`${cleanXAxisName}: ${formatNumber(dataPoint.x, xAxisVariable)}`);
+									labels.push(`${cleanYAxisNameScatter}: ${formatNumber(dataPoint.y, yAxisVariable)}`);
 									break;
 								case 'line':
 									const cleanYAxisNameLine = getIndicatorDisplayName(yAxisVariable);
-									labels.push(`${cleanYAxisNameLine}: ${formatNumber(dataPoint.y) || formatNumber(context.raw)}`);
+									labels.push(`${cleanYAxisNameLine}: ${formatNumber(dataPoint.y || context.raw, yAxisVariable)}`);
 									break;
 								case 'pie':
 									const percentage = ((context.raw / data.reduce((sum, item) => sum + item.value, 0)) * 100).toFixed(2);
 									const pieDataItem = data[context.dataIndex];
-									const value = formatNumber(context.raw);
+									const indicatorId = pieDataItem?.indicator_id;
+									const formattedValue = formatNumber(context.raw, indicatorId);
 									
-									// Format value based on pie chart type
-									if (selectedPieChartType === 'revenue') {
-										labels.push(`Amount: $${value}`);
-									} else {
-										labels.push(`Average: ${value}%`);
-									}
+									labels.push(`Value: ${formattedValue}`);
 									labels.push(`Share: ${percentage}%`);
 									break;
 								default:
@@ -1143,6 +1150,34 @@
 		debounceApiCall(fetchChartData, DEBOUNCE_DELAY);
 	}
 	
+	// Additional reactive statements to ensure chart updates when filters change
+	$: if (browser && selectedChartType && $currentSelectedIndicators) {
+		updateAvailableOptions();
+		if (isChartConfigValid()) {
+			debounceApiCall(fetchChartData, DEBOUNCE_DELAY);
+		}
+	}
+	
+	$: if (browser && selectedChartType && $currentYears) {
+		updateAvailableOptions();
+		if (isChartConfigValid()) {
+			debounceApiCall(fetchChartData, DEBOUNCE_DELAY);
+		}
+	}
+	
+	$: if (browser && selectedChartType && $currentGeoLevel) {
+		updateAvailableOptions();
+		if (isChartConfigValid()) {
+			debounceApiCall(fetchChartData, DEBOUNCE_DELAY);
+		}
+	}
+	
+	$: if (browser && selectedChartType && $currentGeoFilter) {
+		if (isChartConfigValid()) {
+			debounceApiCall(fetchChartData, DEBOUNCE_DELAY);
+		}
+	}
+	
 	// Function to handle configuration changes and trigger rerender
 	function handleConfigChange() {
 		if (selectedChartType && isChartConfigValid()) {
@@ -1309,22 +1344,29 @@
 	});
 </script>
 
-<Card variant="default" padding="none">
+<div class="bg-gradient-to-br from-white via-white to-teal-50/30 rounded-2xl shadow-floating border border-teal-200/30 backdrop-blur-sm">
 	<div class="relative">
 		<!-- Header -->
-		<div class="px-6 py-4 border-b border-gray-200">
+		<div class="px-6 py-5 border-b border-teal-200/40 bg-gradient-to-r from-white via-teal-50/20 to-white rounded-t-2xl">
 			<div class="flex items-center justify-between">
-				<div>
-					<h3 class="text-lg font-semibold text-gray-900">Chart Visualization</h3>
-					<p class="text-sm text-gray-600 mt-1">
-						{#if selectedChartType}
-							Creating a {chartOptions.find(opt => opt.id === selectedChartType)?.useCase.toLowerCase()}
-						{:else if $isAnalysisReady || selectedChartType === 'pie'}
-							Choose how you'd like to visualize your data
-						{:else}
-							Select indicators, geography level, and years to create charts
-						{/if}
-					</p>
+				<div class="flex items-center space-x-3">
+					<div class="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center shadow-elegant">
+						<svg class="w-5 h-5 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+						</svg>
+					</div>
+					<div>
+						<h3 class="text-xl font-bold text-teal-900">Chart Visualization</h3>
+						<p class="text-sm text-teal-700 mt-0.5">
+							{#if selectedChartType}
+								Creating a {chartOptions.find(opt => opt.id === selectedChartType)?.useCase.toLowerCase()}
+							{:else if $isAnalysisReady || selectedChartType === 'pie'}
+								Choose how you'd like to visualize your data
+							{:else}
+								Select indicators, geography level, and years to create charts
+							{/if}
+						</p>
+					</div>
 				</div>
 				
 				{#if selectedChartType}
@@ -1333,7 +1375,10 @@
 						size="sm"
 						on:click={goBackToSelection}
 					>
-						← Back to Chart Types
+						<svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+						</svg>
+						Back to Chart Types
 					</Button>
 				{/if}
 			</div>
@@ -1400,23 +1445,27 @@
 					<div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
 						{#each chartOptions as option}
 							<button
-								class="p-6 border-2 border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-all duration-200 text-left group {option.disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}"
+								class="p-6 bg-white/80 backdrop-blur-sm border border-teal-200/60 rounded-xl hover:bg-white hover:shadow-luxury hover:border-teal-300 transition-all duration-300 text-left group {option.disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} shadow-elegant"
 								on:click={() => !option.disabled && selectChartType(option.id)}
 								disabled={option.disabled}
 							>
 								<div class="flex items-start space-x-4">
-									<div class="text-3xl">{option.icon}</div>
+									<div class="w-12 h-12 rounded-xl bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center shadow-elegant group-hover:shadow-luxury transition-all duration-300">
+										<svg class="w-6 h-6 text-teal-700" fill="currentColor" viewBox="0 0 24 24">
+											<path d="{option.icon}"/>
+										</svg>
+									</div>
 									<div class="flex-1">
-										<h5 class="text-lg font-semibold text-gray-900 mb-2 group-hover:text-blue-700">
+										<h5 class="text-lg font-bold text-teal-900 mb-2 group-hover:text-teal-800">
 											{option.title}
 										</h5>
-										<p class="text-sm text-gray-600 mb-3">
+										<p class="text-sm text-teal-700 mb-3 leading-relaxed">
 											{option.description}
 										</p>
-										<div class="inline-flex items-center text-sm font-medium text-blue-600">
+										<div class="inline-flex items-center text-sm font-semibold text-teal-600 bg-gradient-to-r from-teal-100 to-teal-200 px-3 py-1.5 rounded-full border border-teal-300/50">
 											<span>{option.useCase}</span>
 											{#if !option.disabled}
-												<svg class="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<svg class="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
 												</svg>
 											{/if}
@@ -1723,4 +1772,4 @@
 			{/if}
 		</div>
 	</div>
-</Card>
+</div>

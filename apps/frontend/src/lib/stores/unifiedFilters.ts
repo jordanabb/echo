@@ -32,7 +32,7 @@ const DEFAULT_UNIFIED_FILTERS: UnifiedFilterState = {
 	geoFilter: null,
 	years: [2022],
 	primaryYear: 2022,
-	primaryIndicator: 'total_population',
+	primaryIndicator: null, // No default indicator - only show selected variables
 	selectedIndicators: [],
 	viewOverrides: {}
 };
@@ -126,17 +126,10 @@ async function updateUrl(filters: UnifiedFilterState, replaceState = false): Pro
  */
 function applyDefaultFilters(): void {
 	const $latestYear = get(latestYear);
-	const $indicators = get(indicators);
 	const $geographies = get(geographies);
 	
 	// Use the latest year if available
 	const defaultYear = $latestYear || DEFAULT_UNIFIED_FILTERS.primaryYear!;
-	
-	// Validate that default indicator exists
-	let defaultIndicator = DEFAULT_UNIFIED_FILTERS.primaryIndicator;
-	if ($indicators.length > 0 && !$indicators.find(ind => ind.id === defaultIndicator)) {
-		defaultIndicator = $indicators[0].id;
-	}
 	
 	// Validate that default geography level exists
 	let defaultGeoLevel = DEFAULT_UNIFIED_FILTERS.geoLevel;
@@ -147,7 +140,7 @@ function applyDefaultFilters(): void {
 	const defaultFilters: UnifiedFilterState = {
 		...DEFAULT_UNIFIED_FILTERS,
 		geoLevel: defaultGeoLevel,
-		primaryIndicator: defaultIndicator,
+		primaryIndicator: null, // No default indicator
 		primaryYear: defaultYear,
 		years: [defaultYear]
 	};
@@ -421,13 +414,15 @@ const currentMapDisplayYear: Readable<number | null> = derived(
 );
 
 const currentMapDisplayIndicator: Readable<string | null> = derived(
-	[currentSelectedIndicators, currentPrimaryIndicator],
-	([$selectedIndicators, $primaryIndicator]) => {
-		// Use first selected indicator, fallback to primary indicator
-		if ($selectedIndicators.length > 0) {
+	[currentPrimaryIndicator, currentSelectedIndicators],
+	([$primaryIndicator, $selectedIndicators]) => {
+		// Use primary indicator if available, otherwise use first selected indicator
+		if ($primaryIndicator) {
+			return $primaryIndicator;
+		} else if ($selectedIndicators && $selectedIndicators.length > 0) {
 			return $selectedIndicators[0];
 		}
-		return $primaryIndicator;
+		return null;
 	}
 );
 
@@ -461,8 +456,8 @@ const currentUrl: Readable<string> = derived(unifiedFilters, ($filters) => {
 
 // Function to check if filters are valid
 const areFiltersValid: Readable<boolean> = derived(
-	[unifiedFilters, indicators, geographies],
-	([$filters, $indicators, $geographies]) => {
+	[unifiedFilters, indicators, geographies, currentMapDisplayIndicator],
+	([$filters, $indicators, $geographies, $mapDisplayIndicator]) => {
 		if (!$filters.geoLevel || !$filters.primaryYear) {
 			return false;
 		}
@@ -471,13 +466,14 @@ const areFiltersValid: Readable<boolean> = derived(
 		const geoLevelExists = Object.keys($geographies).includes($filters.geoLevel);
 		if (!geoLevelExists) return false;
 		
-		// For single indicator views, check if primary indicator is valid
-		if ($filters.primaryIndicator) {
-			const indicatorExists = $indicators.some(ind => ind.id === $filters.primaryIndicator);
+		// Check if the indicator that will be displayed on the map is valid
+		const indicatorToValidate = $mapDisplayIndicator || $filters.primaryIndicator;
+		if (indicatorToValidate) {
+			const indicatorExists = $indicators.some(ind => ind.id === indicatorToValidate);
 			if (!indicatorExists) return false;
 			
 			// Check if year is available for the indicator
-			const indicator = $indicators.find(ind => ind.id === $filters.primaryIndicator);
+			const indicator = $indicators.find(ind => ind.id === indicatorToValidate);
 			const yearAvailable = indicator?.available_years.includes($filters.primaryYear) || false;
 			if (!yearAvailable) return false;
 		}

@@ -2,17 +2,17 @@
 	import '../app.css';
 	import { onMount } from 'svelte';
 	import { initializeMetadata } from '$lib/stores/metadata';
-	import { initializeFilters } from '$lib/stores/filters';
+	import { initializeUnifiedFilters } from '$lib/stores/unifiedFilters';
 
 	let { children } = $props();
 
 	onMount(() => {
-		// Initialize metadata first, then filters
+		// Initialize metadata first, then unified filters
 		initializeMetadata();
 		
 		// Small delay to ensure metadata is loaded before initializing filters
 		setTimeout(() => {
-			initializeFilters();
+			initializeUnifiedFilters();
 		}, 100);
 	});
 </script>

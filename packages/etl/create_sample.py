@@ -212,7 +212,13 @@ def process_and_merge_all_indicators(master_geographies_gdf):
         logging.info(f"--- Processing CSVs for geo_type: '{geo_type}' ---")
         
         # Get the GEOIDs for the current geo_type we're processing
-        current_geos = master_geographies_gdf[master_geographies_gdf['geo_level'].str.contains(geo_type)]
+        # Use exact matching to avoid 'tract' matching 'school_district'
+        if geo_type == 'legislative':
+            # For legislative, match both 'sldu' and 'sldl'
+            current_geos = master_geographies_gdf[master_geographies_gdf['geo_level'].isin(['sldu', 'sldl'])]
+        else:
+            # For all other types, use exact matching
+            current_geos = master_geographies_gdf[master_geographies_gdf['geo_level'] == geo_type]
         valid_geo_ids_for_type = set(current_geos['geo_id'].astype(str))
 
         if valid_geo_ids_for_type:

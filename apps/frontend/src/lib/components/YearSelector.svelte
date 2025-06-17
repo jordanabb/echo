@@ -11,6 +11,7 @@
 	export let showSelectAll = true;
 	export let showClearAll = true;
 	export let maxDisplayYears = 3; // For compact display
+	export let collapsed = false; // New prop for collapsed state
 
 	// Use provided availableYears or fall back to all available years
 	$: years = availableYears.length > 0 ? availableYears : $allAvailableYears;
@@ -216,60 +217,70 @@
 {:else}
 	<!-- Inline Mode -->
 	<div class="space-y-3">
-		<!-- Header with controls -->
-		{#if showSelectAll || showClearAll}
-			<div class="flex items-center justify-between">
+		{#if collapsed}
+			<!-- Collapsed view - compact single line -->
+			<div class="flex items-center justify-start min-h-8 py-2">
 				<span class="text-sm font-medium text-neutral-700">
-					Data Years ({selectedYears.length} selected)
+					Data Years: {getDisplayText()}
 				</span>
-				<div class="flex space-x-2">
-					{#if showSelectAll}
-						<Button variant="ghost" size="sm" on:click={selectAllYears}>
-							Select All
-						</Button>
-					{/if}
-					{#if showClearAll && selectedYears.length > 1}
-						<Button variant="ghost" size="sm" on:click={clearAllYears}>
-							Clear All
-						</Button>
-					{/if}
-				</div>
 			</div>
-		{/if}
-
-		<!-- Year checkboxes -->
-		<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-			{#each years as year}
-				{@const isSelected = selectedYears.includes(year)}
-				{@const isLastSelected = selectedYears.length === 1 && isSelected}
-				<label 
-					class="flex items-center space-x-2 p-2 border border-neutral-200 rounded-md hover:bg-neutral-50 cursor-pointer transition-colors {isLastSelected ? 'opacity-50 cursor-not-allowed' : ''}"
-					class:bg-primary-50={isSelected && !isLastSelected}
-					class:border-primary-300={isSelected && !isLastSelected}
-				>
-					<input
-						type="checkbox"
-						checked={isSelected}
-						disabled={isLastSelected}
-						on:change={() => !isLastSelected && toggleYear(year)}
-						class="h-4 w-4 text-primary-600 border-neutral-300 rounded focus:ring-primary-500 focus:ring-2 transition-colors"
-					/>
-					<span class="text-sm text-neutral-900 flex-1">
-						{year}
+		{:else}
+			<!-- Full view - original layout -->
+			<!-- Header with controls -->
+			{#if showSelectAll || showClearAll}
+				<div class="flex items-center justify-between">
+					<span class="text-sm font-medium text-neutral-700">
+						Data Years ({selectedYears.length} selected)
 					</span>
-					{#if isSelected}
-						<svg class="h-4 w-4 text-primary-600" fill="currentColor" viewBox="0 0 20 20">
-							<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-						</svg>
-					{/if}
-				</label>
-			{/each}
-		</div>
+					<div class="flex space-x-2">
+						{#if showSelectAll}
+							<Button variant="ghost" size="sm" on:click={selectAllYears}>
+								Select All
+							</Button>
+						{/if}
+						{#if showClearAll && selectedYears.length > 1}
+							<Button variant="ghost" size="sm" on:click={clearAllYears}>
+								Clear All
+							</Button>
+						{/if}
+					</div>
+				</div>
+			{/if}
 
-		{#if selectedYears.length === 1}
-			<p class="text-xs text-neutral-600">
-				At least one year must be selected
-			</p>
+			<!-- Year checkboxes -->
+			<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+				{#each years as year}
+					{@const isSelected = selectedYears.includes(year)}
+					{@const isLastSelected = selectedYears.length === 1 && isSelected}
+					<label 
+						class="flex items-center space-x-2 p-2 border border-neutral-200 rounded-md hover:bg-neutral-50 cursor-pointer transition-colors {isLastSelected ? 'opacity-50 cursor-not-allowed' : ''}"
+						class:bg-primary-50={isSelected && !isLastSelected}
+						class:border-primary-300={isSelected && !isLastSelected}
+					>
+						<input
+							type="checkbox"
+							checked={isSelected}
+							disabled={isLastSelected}
+							on:change={() => !isLastSelected && toggleYear(year)}
+							class="h-4 w-4 text-primary-600 border-neutral-300 rounded focus:ring-primary-500 focus:ring-2 transition-colors"
+						/>
+						<span class="text-sm text-neutral-900 flex-1">
+							{year}
+						</span>
+						{#if isSelected}
+							<svg class="h-4 w-4 text-primary-600" fill="currentColor" viewBox="0 0 20 20">
+								<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+							</svg>
+						{/if}
+					</label>
+				{/each}
+			</div>
+
+			{#if selectedYears.length === 1}
+				<p class="text-xs text-neutral-600">
+					At least one year must be selected
+				</p>
+			{/if}
 		{/if}
 	</div>
 {/if}

@@ -14,6 +14,7 @@ class Geography(Base):
     geo_name = Column(String)
     geo_level = Column(String, index=True)
     year = Column(Integer, index=True) # Assuming year is part of the geography record
+    state_fips = Column(String(2), index=True)  # Optimized state filtering column
     geometry = Column(Geometry('MULTIPOLYGON'))
 
 

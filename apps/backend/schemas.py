@@ -55,3 +55,32 @@ class TableDataRequest(BaseModel):
 # represented in Python as List[Dict[str, Any]]. We don't need a rigid
 # Pydantic model for the response here because the columns are dynamic
 # based on the user's request.
+
+# ===================================================================
+#   4. Geometries Endpoint (`GET /api/geometries`)
+#      Defines the shape for requesting geometry data only (for caching).
+# ===================================================================
+
+class GeometriesResponse(BaseModel):
+    geoJson: Dict[str, Any]  # A GeoJSON FeatureCollection dictionary
+    geo_level: str
+    year: int
+    count: int
+
+# ===================================================================
+#   5. Indicator Data Endpoint (`GET /api/indicator-data`)
+#      Defines the shape for requesting indicator data only (fast switching).
+# ===================================================================
+
+class IndicatorDataItem(BaseModel):
+    geo_id: str
+    geo_name: str
+    value: Optional[float]
+    bin: int
+
+class IndicatorDataResponse(BaseModel):
+    data: List[IndicatorDataItem]
+    legend: List[LegendEntry]
+    indicator: str
+    geo_level: str
+    year: int

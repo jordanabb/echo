@@ -38,6 +38,8 @@
 	let searchTerm = '';
 	let expandedThemes: Set<string> = new Set();
 	let modalElement: HTMLDivElement;
+	let isVariableAreaHovered = false;
+	let hasHoveredYearSelector = false;
 
 	// Initialize stores on mount
 	onMount(() => {
@@ -188,6 +190,15 @@
 	}
 
 	/**
+	 * Reset interaction tracking when modal opens/closes
+	 */
+	$: if ($showVariableSelector) {
+		// Reset interaction tracking when modal opens
+		hasHoveredYearSelector = false;
+		isVariableAreaHovered = false;
+	}
+
+	/**
 	 * Get display text for selected variables
 	 */
 	function getVariableDisplayText(): string {
@@ -211,6 +222,34 @@
 	function getGeoDisplayName(geoLevel: string | null): string {
 		if (!geoLevel) return 'Select geography';
 		return $geographies[geoLevel]?.name || geoLevel;
+	}
+
+	/**
+	 * Get theme-specific icon SVG path
+	 */
+	function getThemeIcon(theme: string): string {
+		const themeKey = theme.toLowerCase();
+		
+		if (themeKey.includes('education') || themeKey.includes('school')) {
+			return 'M12 14l9-5-9-5-9 5 9 5z M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z';
+		} else if (themeKey.includes('housing') || themeKey.includes('home')) {
+			return 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6';
+		} else if (themeKey.includes('economic') || themeKey.includes('income') || themeKey.includes('employment')) {
+			return 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1';
+		} else if (themeKey.includes('health') || themeKey.includes('medical')) {
+			return 'M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z';
+		} else if (themeKey.includes('demographic') || themeKey.includes('population')) {
+			return 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z';
+		} else if (themeKey.includes('environment') || themeKey.includes('climate')) {
+			return 'M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z';
+		} else if (themeKey.includes('transportation') || themeKey.includes('transit')) {
+			return 'M8 17l4 4 4-4m-4-5v9m-6-9a6 6 0 1012 0v-3a6 6 0 10-12 0v3z';
+		} else if (themeKey.includes('safety') || themeKey.includes('crime')) {
+			return 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z';
+		} else {
+			// Default icon for other themes
+			return 'M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z';
+		}
 	}
 </script>
 
@@ -266,9 +305,9 @@
 
 				<!-- Year -->
 				<div class="flex items-center space-x-3 group relative">
-					<div class="flex items-center justify-center w-8 h-8 rounded-xl bg-gradient-to-br from-primary-100 to-primary-200 text-primary-700 shadow-elegant group-hover:shadow-luxury transition-all duration-300">
+					<div class="flex items-center justify-center w-8 h-8 rounded-xl bg-gradient-to-br from-teal-100 to-teal-200 text-teal-700 shadow-elegant group-hover:shadow-luxury transition-all duration-300">
 						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 002 2z"/>
 						</svg>
 					</div>
 					<div class="bg-white/80 backdrop-blur-sm border border-teal-200/60 rounded-xl hover:bg-white hover:shadow-elegant transition-all duration-300 min-w-[140px]">
@@ -283,7 +322,7 @@
 
 				<!-- Variables -->
 				<div class="flex items-center space-x-3 group">
-					<div class="flex items-center justify-center w-8 h-8 rounded-xl bg-gradient-to-br from-secondary-100 to-secondary-200 text-secondary-700 shadow-elegant group-hover:shadow-luxury transition-all duration-300">
+					<div class="flex items-center justify-center w-8 h-8 rounded-xl bg-gradient-to-br from-teal-100 to-teal-200 text-teal-700 shadow-elegant group-hover:shadow-luxury transition-all duration-300">
 						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
 						</svg>
@@ -325,8 +364,8 @@
 					<!-- Primary Indicator (for single-variable views) -->
 					<div class="space-y-3">
 						<div class="flex items-center space-x-2">
-							<div class="w-6 h-6 rounded-lg bg-gradient-to-br from-accent-100 to-accent-200 flex items-center justify-center">
-								<svg class="w-3 h-3 text-accent-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<div class="w-6 h-6 rounded-lg bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center">
+								<svg class="w-3 h-3 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
 								</svg>
 							</div>
@@ -387,8 +426,8 @@
 					<!-- Quick Actions -->
 					<div class="space-y-3">
 						<div class="flex items-center space-x-2">
-							<div class="w-6 h-6 rounded-lg bg-gradient-to-br from-primary-100 to-primary-200 flex items-center justify-center">
-								<svg class="w-3 h-3 text-primary-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<div class="w-6 h-6 rounded-lg bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center">
+								<svg class="w-3 h-3 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
 								</svg>
 							</div>
@@ -468,6 +507,20 @@
 					</div>
 				</div>
 
+				<!-- Year Selection -->
+				<div 
+					class="mt-6 p-4 bg-white/60 backdrop-blur-sm border border-teal-200/40 rounded-xl transition-all duration-300 ease-in-out overflow-hidden" 
+					style="max-height: {hasHoveredYearSelector && isVariableAreaHovered ? '3rem' : '200px'};"
+					on:mouseenter={() => hasHoveredYearSelector = true}
+				>
+					<YearSelector
+						selectedYears={$currentYears}
+						mode="inline"
+						collapsed={hasHoveredYearSelector && isVariableAreaHovered}
+						on:change={(event) => setYears(event.detail.selectedYears)}
+					/>
+				</div>
+
 				<!-- Search Bar -->
 				<div class="mt-6 relative">
 					<div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
@@ -493,37 +546,39 @@
 					{/if}
 				</div>
 
-				<!-- Year Selection -->
-				<div class="mt-6 p-4 bg-white/60 backdrop-blur-sm border border-teal-200/40 rounded-xl">
-					<YearSelector
-						selectedYears={$currentYears}
-						mode="inline"
-						on:change={(event) => setYears(event.detail.selectedYears)}
-					/>
-				</div>
-
-				<!-- Theme Controls -->
-				{#if !searchTerm && Object.keys($indicatorsByTheme).length > 1}
-					<div class="flex gap-3 mt-4">
-						<Button variant="ghost" size="sm" on:click={expandAllThemes}>
-							<svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>
-							</svg>
-							Expand All
-						</Button>
-						<Button variant="ghost" size="sm" on:click={collapseAllThemes}>
-							<svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 9l6 6m0 0l6-6m-6 6V3"/>
-							</svg>
-							Collapse All
-						</Button>
-					</div>
-				{/if}
 			</div>
 
 			<!-- Modal Content -->
-			<div class="flex-1 overflow-y-auto p-6 bg-gradient-to-b from-white/50 to-teal-50/20">
+			<div 
+				class="flex-1 overflow-y-auto p-6 bg-gradient-to-b from-white/50 to-teal-50/20" 
+				on:mouseenter={() => isVariableAreaHovered = true}
+				on:mouseleave={() => isVariableAreaHovered = false}
+			>
 				{#if Object.keys(filteredIndicatorsByTheme).length > 0}
+					<!-- Theme Controls -->
+					{#if !searchTerm && Object.keys($indicatorsByTheme).length > 1}
+						<div class="flex gap-2 mb-4">
+							<button
+								on:click={expandAllThemes}
+								class="text-xs font-medium text-teal-700 bg-white/80 hover:bg-white border border-teal-200/60 hover:border-teal-300 rounded-lg px-2 py-1 transition-all duration-200 hover:shadow-sm"
+							>
+								<svg class="w-3 h-3 mr-1 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>
+								</svg>
+								Expand All
+							</button>
+							<button
+								on:click={collapseAllThemes}
+								class="text-xs font-medium text-teal-700 bg-white/80 hover:bg-white border border-teal-200/60 hover:border-teal-300 rounded-lg px-2 py-1 transition-all duration-200 hover:shadow-sm"
+							>
+								<svg class="w-3 h-3 mr-1 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 9l6 6m0 0l6-6m-6 6V3"/>
+								</svg>
+								Collapse All
+							</button>
+						</div>
+					{/if}
+
 					<div class="space-y-4">
 						{#each Object.entries(filteredIndicatorsByTheme) as [theme, indicators]}
 							<div class="bg-white/80 backdrop-blur-sm border border-teal-200/40 rounded-xl overflow-hidden shadow-elegant hover:shadow-luxury transition-all duration-300">
@@ -535,7 +590,7 @@
 									<div class="flex items-center gap-3">
 										<div class="w-8 h-8 rounded-lg bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center shadow-elegant group-hover:shadow-luxury transition-all duration-300">
 											<svg class="w-4 h-4 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{getThemeIcon(theme)}"/>
 											</svg>
 										</div>
 										<div>

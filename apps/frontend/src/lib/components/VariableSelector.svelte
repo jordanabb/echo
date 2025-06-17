@@ -25,6 +25,12 @@
 	let searchTerm = '';
 	let expandedThemes: Set<string> = new Set();
 	let searchInput: HTMLInputElement;
+	let isVariableAreaHovered = false;
+
+	// Debug hover state
+	$: {
+		console.log('isVariableAreaHovered:', isVariableAreaHovered);
+	}
 
 	// Reactive variables
 	$: filteredIndicatorsByTheme = filterIndicatorsBySearch($indicatorsByTheme, searchTerm);
@@ -191,10 +197,11 @@
 			</div>
 
 			<!-- Year Selection -->
-			<div class="mt-3">
+			<div class="mt-3 transition-all duration-300 ease-in-out overflow-hidden" style="max-height: {isVariableAreaHovered ? '2rem' : '200px'};">
 				<YearSelector
 					selectedYears={$currentYears}
 					mode="inline"
+					collapsed={isVariableAreaHovered}
 					on:change={(event) => setYears(event.detail.selectedYears)}
 				/>
 			</div>
@@ -213,7 +220,20 @@
 		</div>
 
 		<!-- Content -->
-		<div class="flex-1 overflow-y-auto" style="max-height: {maxHeight};">
+		<div 
+			class="flex-1 overflow-y-auto border-2 transition-colors" 
+			class:border-red-500={isVariableAreaHovered}
+			class:border-transparent={!isVariableAreaHovered}
+			style="max-height: {maxHeight};"
+			on:mouseenter={() => {
+				console.log('Mouse entered variable area');
+				isVariableAreaHovered = true;
+			}}
+			on:mouseleave={() => {
+				console.log('Mouse left variable area');
+				isVariableAreaHovered = false;
+			}}
+		>
 			{#if hasSearchResults}
 				<div class="p-4 space-y-4">
 					{#each Object.entries(filteredIndicatorsByTheme) as [theme, indicators]}

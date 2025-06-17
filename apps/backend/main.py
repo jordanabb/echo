@@ -175,8 +175,8 @@ def get_map_view_data(
     query_params = {"indicator": db_indicator_name, "year": year, "geo_level": geo_level}
     
     if state_filter:
-        # Filter by state using the first 2 digits of geo_id (state FIPS code)
-        state_filter_clause = "AND LEFT(g.geo_id, 2) = :state_filter"
+        # Filter by state using the optimized state_fips column
+        state_filter_clause = "AND g.state_fips = :state_filter"
         query_params["state_filter"] = state_filter
     
     sql_query = text(f"""
@@ -195,7 +195,7 @@ def get_map_view_data(
         WHERE g.geo_level = :geo_level
           AND g.year = :year
           {state_filter_clause}
-        ORDER BY g.geo_id, r.value DESC NULLS LAST;
+        ORDER BY g.geo_id, g.year DESC, r.value DESC NULLS LAST;
     """)
 
     # Execute the query and load directly into a GeoPandas GeoDataFrame
@@ -277,6 +277,205 @@ def get_map_view_data(
     )
 
 
+@app.get(
+    "/api/geometries",
+    response_model=schemas.GeometriesResponse,
+    responses={404: {"model": schemas.NoDataResponse}}
+)
+def get_geometries(
+    geo_level: str,
+    year: int,
+    state_filter: str = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Provides ONLY the geometric boundaries for a given geography level and year.
+    This endpoint is designed for caching - geometries don't change when indicators change.
+    """
+    # Validate input parameters
+    if not geo_level or not year:
+        raise HTTPException(status_code=400, detail="geo_level and year are required")
+    
+    # First, validate that the requested geo_level exists in the database
+    geo_level_check_query = text("""
+        SELECT DISTINCT geo_level 
+        FROM geographies 
+        WHERE geo_level = :geo_level AND year = :year
+        LIMIT 1;
+    """)
+    
+    geo_level_result = db.execute(geo_level_check_query, {"geo_level": geo_level, "year": year}).fetchone()
+    if not geo_level_result:
+        raise HTTPException(status_code=404, detail=f"No geographic data found for level '{geo_level}' in year {year}")
+    
+    # Construct a SQL query to get all geographies for the EXACT level and year
+    # Add state filtering if state_filter is provided
+    state_filter_clause = ""
+    query_params = {"year": year, "geo_level": geo_level}
+    
+    if state_filter:
+        # Filter by state using the optimized state_fips column
+        state_filter_clause = "AND g.state_fips = :state_filter"
+        query_params["state_filter"] = state_filter
+    
+    sql_query = text(f"""
+        SELECT DISTINCT ON (g.geo_id) 
+               g.geo_id, 
+               g.geo_name,
+               g.geo_level,
+               g.year as geo_year,
+               g.geometry
+        FROM geographies g
+        WHERE g.geo_level = :geo_level
+          AND g.year = :year
+          {state_filter_clause}
+        ORDER BY g.geo_id;
+    """)
+
+    # Execute the query and load directly into a GeoPandas GeoDataFrame
+    gdf = gpd.read_postgis(
+        sql_query,
+        db.bind,
+        params=query_params,
+        geom_col='geometry'
+    )
+
+    if gdf.empty:
+        raise HTTPException(status_code=404, detail=f"No geographic data found for level '{geo_level}' in year {year}")
+
+    # Normalize geo_ids to ensure consistent formatting
+    gdf['geo_id'] = gdf['geo_id'].apply(lambda x: normalize_geo_id(str(x), geo_level))
+
+    # Convert GeoDataFrame to a GeoJSON dictionary
+    geo_json_dict = json.loads(gdf[['geo_id', 'geo_name', 'geometry']].to_json())
+
+    print(f"Geometries API - Returning {len(geo_json_dict.get('features', []))} GeoJSON features for {geo_level}")
+
+    return schemas.GeometriesResponse(
+        geoJson=geo_json_dict,
+        geo_level=geo_level,
+        year=year,
+        count=len(geo_json_dict.get('features', []))
+    )
+
+
+@app.get(
+    "/api/indicator-data",
+    response_model=schemas.IndicatorDataResponse,
+    responses={404: {"model": schemas.NoDataResponse}}
+)
+def get_indicator_data(
+    indicator: str,
+    geo_level: str,
+    year: int,
+    state_filter: str = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Provides ONLY the indicator data values for a given indicator, geography level, and year.
+    This endpoint is optimized for fast variable switching without re-fetching geometries.
+    """
+    # Validate input parameters
+    if not indicator or not geo_level or not year:
+        raise HTTPException(status_code=400, detail="indicator, geo_level, and year are all required")
+    
+    # Create a mapping from indicator names (as stored in DB) to config keys
+    name_to_key_mapping = {meta["name"]: key for key, meta in INDICATOR_METADATA.items()}
+    
+    # Determine the actual indicator name to use in the database query
+    if indicator in INDICATOR_METADATA:
+        # It's a config key, use the corresponding name for DB query
+        db_indicator_name = INDICATOR_METADATA[indicator]["name"]
+    elif indicator in name_to_key_mapping:
+        # It's already a full name, use it directly
+        db_indicator_name = indicator
+    else:
+        # Invalid indicator
+        raise HTTPException(status_code=400, detail=f"Invalid indicator: {indicator}")
+    
+    # Add state filtering if state_filter is provided
+    state_filter_clause = ""
+    query_params = {"indicator": db_indicator_name, "year": year, "geo_level": geo_level}
+    
+    if state_filter:
+        # Filter by state using the optimized state_fips column
+        state_filter_clause = "AND g.state_fips = :state_filter"
+        query_params["state_filter"] = state_filter
+    
+    # Query to get indicator data with geo_names for reference
+    sql_query = text(f"""
+        SELECT DISTINCT ON (g.geo_id) 
+               g.geo_id, 
+               g.geo_name,
+               r.value
+        FROM geographies g
+        LEFT JOIN results_data r ON g.geo_id = r.geo_id
+                               AND r.indicator_id = :indicator
+                               AND r.year = :year
+        WHERE g.geo_level = :geo_level
+          AND g.year = :year
+          {state_filter_clause}
+        ORDER BY g.geo_id;
+    """)
+
+    # Execute the query
+    result = db.execute(sql_query, query_params).fetchall()
+    
+    if not result:
+        raise HTTPException(status_code=404, detail=f"No data found for indicator '{indicator}' at level '{geo_level}' in year {year}")
+
+    # Convert to list of dictionaries and normalize geo_ids
+    data_list = []
+    values_for_classification = []
+    
+    for row in result:
+        normalized_geo_id = normalize_geo_id(str(row.geo_id), geo_level)
+        value = None if row.value is None else float(row.value)
+        
+        data_list.append({
+            "geo_id": normalized_geo_id,
+            "geo_name": row.geo_name,
+            "value": value
+        })
+        
+        if value is not None:
+            values_for_classification.append(value)
+    
+    # Classify the data into 5 bins (quintiles) for legend
+    legend_entries = []
+    if values_for_classification and len(set(values_for_classification)) >= 5:
+        classifier = mapclassify.Quantiles(values_for_classification, k=5)
+        
+        # Add bin information to data
+        for item in data_list:
+            if item["value"] is not None:
+                item["bin"] = classifier.find_bin(item["value"])
+            else:
+                item["bin"] = -1
+        
+        # Create the human-readable legend
+        for i, a_bin in enumerate(classifier.bins):
+            lower_bound = classifier.bins[i-1] if i > 0 else min(values_for_classification)
+            label = f"{lower_bound:,.2f} - {a_bin:,.2f}"
+            legend_entries.append(schemas.LegendEntry(label=label, color=CHOROPLETH_PALETTE[i]))
+    else:
+        # If there's no data or not enough variation, assign all to 'no data'
+        for item in data_list:
+            item["bin"] = -1
+    
+    legend_entries.append(schemas.LegendEntry(label="No Data", color=NO_DATA_COLOR))
+    
+    print(f"Indicator Data API - Returning {len(data_list)} data points for indicator '{indicator}'")
+
+    return schemas.IndicatorDataResponse(
+        data=data_list,
+        legend=legend_entries,
+        indicator=indicator,
+        geo_level=geo_level,
+        year=year
+    )
+
+
 @app.post("/api/table-data")
 def get_table_data(request: schemas.TableDataRequest, db: Session = Depends(get_db)):
     """
@@ -320,6 +519,7 @@ def get_table_data(request: schemas.TableDataRequest, db: Session = Depends(get_
         SELECT
             r.geo_id,
             g.geo_name,
+            g.state_fips,
             r.year,
             {pivot_sql}
         FROM results_data r
@@ -327,7 +527,7 @@ def get_table_data(request: schemas.TableDataRequest, db: Session = Depends(get_
         WHERE r.geo_id IN :geo_ids
           AND r.indicator_id IN :indicator_ids
           AND r.year IN :years
-        GROUP BY r.geo_id, g.geo_name, r.year
+        GROUP BY r.geo_id, g.geo_name, g.state_fips, r.year
         ORDER BY g.geo_name, r.year;
     """)
 

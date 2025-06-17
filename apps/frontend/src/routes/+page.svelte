@@ -98,7 +98,7 @@
 </svelte:head>
 
 <!-- Hero Landing Section -->
-<div class="min-h-screen bg-gradient-to-br from-slate-50 via-white to-teal-50 relative overflow-hidden">
+<div class="h-screen bg-gradient-to-br from-slate-50 via-white to-teal-50 relative overflow-hidden">
 	<!-- Sophisticated Background Elements -->
 	<div class="absolute inset-0 bg-grid-pattern opacity-5"></div>
 	<div class="absolute inset-0 bg-gradient-to-t from-teal-100/30 via-transparent to-transparent"></div>
@@ -111,15 +111,6 @@
 	<!-- Hero Content -->
 	<div class="relative z-10 min-h-screen flex items-center justify-center px-4 sm:px-6 lg:px-8">
 		<div class="text-center max-w-6xl mx-auto">
-			<!-- Premium Logo/Icon -->
-			<div class="mb-16">
-				<div class="inline-flex items-center justify-center w-32 h-32 bg-gradient-to-br from-teal-700 to-teal-800 rounded-4xl mb-10 shadow-floating hover:shadow-teal-glow-lg transition-all duration-500 transform hover:scale-105 border border-teal-600/30">
-					<svg class="w-16 h-16 text-white drop-shadow-lg" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2-2V7a2 2 0 012-2h2a2 2 0 002 2v2a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 00-2 2h-2a2 2 0 00-2 2v6a2 2 0 01-2 2H9a2 2 0 01-2-2z" />
-					</svg>
-				</div>
-			</div>
-
 			<!-- Dramatic Main Title -->
 			<h1 class="text-7xl md:text-9xl font-display font-black mb-8 tracking-tight leading-none">
 				<span class="bg-gradient-to-r from-teal-800 via-teal-700 to-teal-800 bg-clip-text text-transparent drop-shadow-sm">
@@ -163,12 +154,12 @@
 </div>
 
 <!-- Main Dashboard Homepage -->
-<div class="min-h-screen bg-gradient-to-br from-slate-50/50 via-white to-teal-50/30" id="dashboard-section">
+<div class="bg-gradient-to-br from-slate-50/50 via-white to-teal-50/30" id="dashboard-section">
 
 	<!-- Content Sections -->
-	<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+	<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
 		<!-- About Section -->
-		<section class="mb-32">
+		<section class="mb-16">
 			<div class="text-center mb-16">
 				<h2 class="text-5xl font-display font-bold text-slate-900 mb-6">
 					<span class="bg-gradient-to-r from-teal-900 via-teal-800 to-teal-900 bg-clip-text text-transparent">
@@ -210,8 +201,8 @@
 		</section>
 
 		<!-- How to Use Section -->
-		<section class="mb-32">
-			<div class="text-center mb-20">
+		<section class="mb-16">
+			<div class="text-center mb-12">
 				<h2 class="text-5xl font-display font-bold text-slate-900 mb-6">
 					<span class="bg-gradient-to-r from-teal-900 via-teal-800 to-teal-900 bg-clip-text text-transparent">
 						How to Use the ECHO Dashboard
@@ -458,13 +449,13 @@
 </div>
 
 <!-- Interactive Dashboard Interface -->
-<div class="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100" id="interface-section">
+<div class="bg-gradient-to-br from-slate-50 via-white to-slate-100" id="interface-section">
 	<!-- Unified Context Bar -->
 	<UnifiedContextBar />
 
 	<!-- Streamlined Interface Demo Section -->
-	<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 border-b border-slate-200">
-		<div class="text-center mb-16">
+	<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 border-b border-slate-200">
+		<div class="text-center mb-12">
 			<h2 class="text-4xl font-display font-bold text-slate-900 mb-4">
 				Streamlined Data Interface
 			</h2>
@@ -628,8 +619,8 @@
 	</div>
 
 	<!-- Data Analysis Suite Section -->
-	<div id="analysis-section" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 border-b border-slate-200">
-		<div class="text-center mb-16">
+	<div id="analysis-section" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 border-b border-slate-200">
+		<div class="text-center mb-12">
 			<h2 class="text-4xl font-display font-bold text-slate-900 mb-4">
 				Intelligent Data Analysis Suite
 			</h2>
@@ -648,13 +639,6 @@
 	<!-- Footer -->
 	<footer class="bg-gradient-to-br from-slate-50 via-white to-teal-50 border-t border-slate-200 py-16">
 		<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-			<div class="mb-8">
-				<div class="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-teal-600 to-teal-700 rounded-2xl mb-6 shadow-lg">
-					<svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2-2V7a2 2 0 012-2h2a2 2 0 002 2v2a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 00-2 2h-2a2 2 0 00-2 2v6a2 2 0 01-2 2H9a2 2 0 01-2-2z" />
-					</svg>
-				</div>
-			</div>
 			<p class="text-slate-700 mb-6 text-lg">
 				Developed by <a 
 					href="https://www.newamerica.org/prek-12-education/education-funding-equity/about/" 
@@ -664,9 +648,6 @@
 				>
 					New America's Education Funding Equity Initiative
 				</a>
-			</p>
-			<p class="text-slate-600 mb-6">
-				Built with ❤️ using SvelteKit, TypeScript, and Tailwind CSS
 			</p>
 			<div class="flex justify-center space-x-6">
 				<Button variant="ghost" size="sm">

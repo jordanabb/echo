@@ -72,7 +72,7 @@
 <div class="w-full bg-gradient-to-br from-white via-white to-teal-50/30 rounded-2xl shadow-floating border border-teal-200/30 backdrop-blur-sm">
 	<!-- Tab Navigation -->
 	<div class="border-b border-teal-200/40 bg-gradient-to-r from-white via-teal-50/20 to-white rounded-t-2xl">
-		<div class="px-6 pt-6 pb-0">
+		<div class="px-6 pt-6 pb-4">
 			<div class="flex items-center justify-between mb-6">
 				<div class="flex items-center space-x-3">
 					<div class="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center shadow-elegant">

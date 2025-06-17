@@ -19,7 +19,7 @@
 	const baseClasses = 'relative inline-flex items-center justify-center font-semibold transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-[1.02] active:scale-[0.98] overflow-hidden';
 
 	const variantClasses = {
-		primary: 'bg-premium-teal text-white hover:shadow-teal-glow focus:ring-teal-500 shadow-luxury hover:shadow-floating border border-teal-800/20 hover:animate-glow-pulse',
+		primary: 'bg-gradient-to-r from-teal-700 to-teal-800 text-white hover:from-teal-800 hover:to-teal-900 focus:ring-teal-500 shadow-luxury hover:shadow-floating border border-teal-600',
 		secondary: 'bg-gradient-to-r from-secondary-600 to-secondary-700 text-white hover:from-secondary-700 hover:to-secondary-800 focus:ring-secondary-500 shadow-luxury hover:shadow-floating',
 		accent: 'bg-gradient-to-r from-accent-600 to-accent-700 text-white hover:from-accent-700 hover:to-accent-800 focus:ring-accent-500 shadow-luxury hover:shadow-floating',
 		outline: 'border-2 border-teal-800 text-teal-800 hover:bg-teal-50 hover:border-teal-900 focus:ring-teal-500 shadow-elegant hover:shadow-luxury backdrop-blur-sm',

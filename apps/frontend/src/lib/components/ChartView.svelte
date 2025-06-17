@@ -15,17 +15,31 @@
 	import { crossfade } from 'svelte/transition';
 	import { quintOut } from 'svelte/easing';
 	import { formatValueByType } from '$lib/utils';
+	import { showVariableSelector } from '$lib/stores/interactiveSteps';
+	import { getStateNameByCode } from '$lib/constants/states';
 	import Card from './Card.svelte';
 	import Button from './Button.svelte';
 	import GeographicUnitSelector from './GeographicUnitSelector.svelte';
 	import YearSelector from './YearSelector.svelte';
+	import LoadingSpinner from './LoadingSpinner.svelte';
 	import Chart from 'chart.js/auto';
 	import 'chartjs-adapter-date-fns';
+	
+	// Dynamically import zoom plugin to avoid SSR issues
+	let zoomPlugin: any = null;
 	
 	// Ensure Chart.js is properly initialized
 	if (browser) {
 		Chart.defaults.responsive = true;
 		Chart.defaults.maintainAspectRatio = false;
+		
+		// Dynamically import and register zoom plugin
+		import('chartjs-plugin-zoom').then((module) => {
+			zoomPlugin = module.default;
+			Chart.register(zoomPlugin);
+		}).catch((err) => {
+			console.warn('Failed to load chartjs-plugin-zoom:', err);
+		});
 	}
 	
 	// Chart type definitions
@@ -53,7 +67,7 @@
 			id: 'scatter',
 			title: 'Explore Relationship Between Variables',
 			description: 'Discover correlations and patterns between two indicators',
-			icon: 'M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z',
+			icon: 'M3 21V3h18M6 16a1 1 0 100-2 1 1 0 000 2zM10 12a1 1 0 100-2 1 1 0 000 2zM14 8a1 1 0 100-2 1 1 0 000 2zM18 4a1 1 0 100-2 1 1 0 000 2z',
 			useCase: 'Scatter Plot'
 		},
 		{
@@ -82,7 +96,8 @@
 	// Chart configuration state
 	let xAxisVariable: string = '';
 	let yAxisVariable: string = '';
-	let colorVariable: string = '';
+	let thirdVariable: string = '';
+	let thirdVariableMode: 'color' | 'size' = 'color'; // Toggle between color and size
 	let selectedYear: number | null = null;
 	let selectedGeographies: string[] = [];
 	
@@ -132,7 +147,8 @@
 		// Reset configuration when changing chart type
 		xAxisVariable = '';
 		yAxisVariable = '';
-		colorVariable = '';
+		thirdVariable = '';
+		thirdVariableMode = 'color';
 		selectedYear = null;
 		selectedGeographies = [];
 		selectedGeoUnits = [];
@@ -166,6 +182,13 @@
 				selectedYear = availableYears[availableYears.length - 1]; // Latest year
 			}
 		}
+		
+		// Auto-generate chart if configuration is complete after setting defaults
+		setTimeout(() => {
+			if (isChartConfigValid()) {
+				fetchChartData();
+			}
+		}, 100); // Small delay to ensure all variables are set
 	}
 	
 	// Function to go back to chart type selection
@@ -187,6 +210,11 @@
 				year: year.toString()
 			});
 			
+			// Apply state filter if one is selected
+			if ($currentGeoFilter) {
+				params.set('state_filter', $currentGeoFilter);
+			}
+			
 			const response = await fetch(`/api/map-view?${params}`);
 			
 			if (!response.ok) {
@@ -195,8 +223,26 @@
 			
 			const data = await response.json();
 			
-			// Extract geo_ids from the response
-			return data.geoJson?.features?.map((feature: any) => feature.properties?.geo_id) || [];
+			// Extract geo_ids from the response and filter by state if needed
+			let geoIds = data.geoJson?.features?.map((feature: any) => feature.properties?.geo_id) || [];
+			
+			// Additional client-side filtering by state if needed
+			if ($currentGeoFilter && data.geoJson?.features) {
+				geoIds = data.geoJson.features
+					.filter((feature: any) => {
+						const geoId = feature.properties?.geo_id;
+						// For counties, check if the first 2 digits match the state FIPS code
+						// For other geography types, you might need different logic
+						if (geoId && typeof geoId === 'string' && geoId.length >= 2) {
+							const stateFipsCode = geoId.substring(0, 2);
+							return stateFipsCode === $currentGeoFilter;
+						}
+						return false;
+					})
+					.map((feature: any) => feature.properties?.geo_id);
+			}
+			
+			return geoIds;
 		} catch (err) {
 			console.error('Error fetching geo_ids:', err);
 			return [];
@@ -319,16 +365,13 @@
 			});
 			
 			// Extract available geographic units from the data
-			if (selectedChartType === 'line') {
+			if (selectedChartType === 'line' || selectedChartType === 'bar') {
 				const uniqueGeoUnits = [...new Map(
 					data.map(row => [row.geo_id, {geo_id: row.geo_id, geo_name: row.geo_name}])
 				).values()];
 				availableGeoUnits = uniqueGeoUnits.sort((a, b) => a.geo_name.localeCompare(b.geo_name));
 				
-				// If no units are selected yet, select all by default
-				if (selectedGeoUnits.length === 0) {
-					selectedGeoUnits = availableGeoUnits.map(unit => unit.geo_id);
-				}
+				// Don't select any units by default - user must choose
 			}
 			
 			// Transform the data based on chart type
@@ -381,6 +424,11 @@
 						filteredData = rawData.filter(row => row.year === selectedYear);
 					}
 					
+					// Filter data to only include selected geographic units if any are selected
+					if (selectedGeoUnits.length > 0) {
+						filteredData = filteredData.filter(row => selectedGeoUnits.includes(row.geo_id));
+					}
+					
 					// Group by geography and get the indicator value
 					const geoMap = new Map();
 					filteredData.forEach(row => {
@@ -408,7 +456,10 @@
 						}
 					});
 					
-					return Array.from(geoMap.values()).slice(0, 20); // Limit to 20 for readability
+					// If no geographic units are selected, limit to 20 for readability
+					// If specific units are selected, show all of them
+					const resultData = Array.from(geoMap.values());
+					return selectedGeoUnits.length > 0 ? resultData : resultData.slice(0, 20);
 				}
 				break;
 				
@@ -448,16 +499,16 @@
 					// Convert to array format for Chart.js with separate datasets per geographic unit
 					const datasets = [];
 					const colors = [
-						'rgba(59, 130, 246, 1)',    // Blue
-						'rgba(16, 185, 129, 1)',    // Green
-						'rgba(245, 158, 11, 1)',    // Orange
-						'rgba(239, 68, 68, 1)',     // Red
-						'rgba(139, 92, 246, 1)',    // Purple
-						'rgba(236, 72, 153, 1)',    // Pink
-						'rgba(14, 165, 233, 1)',    // Sky
-						'rgba(34, 197, 94, 1)',     // Emerald
-						'rgba(251, 146, 60, 1)',    // Amber
-						'rgba(168, 85, 247, 1)'     // Violet
+						'rgba(15, 118, 110, 1)',    // Teal 700
+						'rgba(13, 148, 136, 1)',    // Teal 600
+						'rgba(20, 184, 166, 1)',    // Teal 500
+						'rgba(45, 212, 191, 1)',    // Teal 400
+						'rgba(94, 234, 212, 1)',    // Teal 300
+						'rgba(153, 246, 228, 1)',   // Teal 200
+						'rgba(17, 94, 89, 1)',      // Teal 800
+						'rgba(19, 78, 74, 1)',      // Teal 900
+						'rgba(4, 47, 46, 1)',       // Teal 950
+						'rgba(204, 251, 241, 1)'    // Teal 100
 					];
 					
 					let colorIndex = 0;
@@ -491,34 +542,46 @@
 						filteredData = rawData.filter(row => row.year === selectedYear);
 					}
 					
-					// Group by geography and get both indicator values - use geo_id as the primary key
+					// Group by geo_id (not geo_name) to ensure unique points for each geographic unit
 					const geoMap = new Map();
 					filteredData.forEach(row => {
 						const geoId = row.geo_id;
 						const geoName = row.geo_name || row.geo_id || 'Unknown';
+						
+						// Derive state name from geo_id using FIPS code (first 2 digits)
+						let stateName = 'Unknown State';
+						if (geoId && typeof geoId === 'string' && geoId.length >= 2) {
+							const stateFipsCode = geoId.substring(0, 2);
+							const derivedStateName = getStateNameByCode(stateFipsCode);
+							if (derivedStateName) {
+								stateName = derivedStateName;
+							}
+						}
+						
 						const xValue = parseFloat(row[xAxisVariable]);
 						const yValue = parseFloat(row[yAxisVariable]);
-						const colorValue = colorVariable ? parseFloat(row[colorVariable]) : null;
+						const thirdValue = thirdVariable ? parseFloat(row[thirdVariable]) : null;
 						
-						// Only use geo_id as key to avoid duplicates, and only if we have valid data
+						// Use geo_id as the unique key to ensure each geographic unit gets one point
 						if (geoId && !isNaN(xValue) && !isNaN(yValue) && isFinite(xValue) && isFinite(yValue)) {
 							// Take the first valid entry for each geo_id (no averaging to avoid confusion)
 							if (!geoMap.has(geoId)) {
 								geoMap.set(geoId, {
 									x: xValue,
 									y: yValue,
-									colorValue: colorValue !== null && !isNaN(colorValue) ? colorValue : null,
+									thirdValue: thirdValue !== null && !isNaN(thirdValue) ? thirdValue : null,
 									label: geoName,
 									geo_id: geoId,
-									geo_name: geoName
+									geo_name: geoName,
+									state_name: stateName
 								});
 							}
 						}
 					});
 					
-					const scatterData = Array.from(geoMap.values()).slice(0, 50); // Limit for performance
+					const scatterData = Array.from(geoMap.values()); // Remove artificial limit for census tracts
 					
-					// Update available geo units for search - ensure no duplicates
+					// Update available geo units for search - ensure no duplicates by using geo_id as key
 					const uniqueGeoUnits = new Map();
 					scatterData.forEach(d => {
 						if (d.geo_id && d.geo_name) {
@@ -736,9 +799,20 @@
 									case 'scatter':
 										// For scatter plots, get the geo_name directly from the raw data point
 										const rawDataPoint = dataPoint.raw;
-										return rawDataPoint?.geo_name || rawDataPoint?.label || `Data Point ${dataPoint.dataIndex + 1}`;
+										const geoName = rawDataPoint?.geo_name || rawDataPoint?.label || `Data Point ${dataPoint.dataIndex + 1}`;
+										
+										// Add state abbreviation to the title if available
+										if (rawDataPoint?.state_name && rawDataPoint.state_name !== 'Unknown State') {
+											// Convert state name to abbreviation
+											const stateAbbrev = getStateAbbreviation(rawDataPoint.state_name);
+											return stateAbbrev ? `${geoName}, ${stateAbbrev}` : geoName;
+										}
+										
+										return geoName;
 									case 'line':
-										return `Year ${dataPoint.parsed.x}`;
+										// For line charts, show the geographic unit name and year
+										const datasetLabel = dataPoint.dataset.label;
+										return `${datasetLabel} - ${dataPoint.parsed.x}`;
 									case 'pie':
 										// Use the geography name from the transformed data
 										const pieDataIndex = dataPoint.dataIndex;
@@ -776,10 +850,17 @@
 									labels.push(`${cleanYAxisName}: ${formatNumber(dataPoint.y || context.raw, yAxisVariable)}`);
 									break;
 								case 'scatter':
+									const rawDataPoint = context.raw;
+									
 									const cleanXAxisName = getIndicatorDisplayName(xAxisVariable);
 									const cleanYAxisNameScatter = getIndicatorDisplayName(yAxisVariable);
 									labels.push(`${cleanXAxisName}: ${formatNumber(dataPoint.x, xAxisVariable)}`);
 									labels.push(`${cleanYAxisNameScatter}: ${formatNumber(dataPoint.y, yAxisVariable)}`);
+									
+									if (thirdVariable && rawDataPoint.thirdValue !== null && rawDataPoint.thirdValue !== undefined) {
+										const cleanThirdName = getIndicatorDisplayName(thirdVariable);
+										labels.push(`${cleanThirdName}: ${formatNumber(rawDataPoint.thirdValue, thirdVariable)}`);
+									}
 									break;
 								case 'line':
 									const cleanYAxisNameLine = getIndicatorDisplayName(yAxisVariable);
@@ -814,8 +895,8 @@
 						datasets: [{
 							label: yAxisVariable,
 							data: data.map(d => d.value),
-							backgroundColor: 'rgba(59, 130, 246, 0.6)',
-							borderColor: 'rgba(59, 130, 246, 1)',
+							backgroundColor: 'rgba(15, 118, 110, 0.6)',
+							borderColor: 'rgba(15, 118, 110, 1)',
 							borderWidth: 1
 						}]
 					},
@@ -884,94 +965,140 @@
 				
 				console.log('Scatter plot config - valid data points:', validScatterData.length);
 				
-				// Create datasets based on color variable
+				// Create datasets based on third variable mode
 				let datasets = [];
 				
-				if (colorVariable && validScatterData.some(d => d.colorValue !== null && d.colorValue !== undefined)) {
-					// Group by color variable value ranges
-					const colorValues = validScatterData
-						.filter(d => d.colorValue !== null && d.colorValue !== undefined)
-						.map(d => d.colorValue);
-					
-					if (colorValues.length > 0) {
-						const minColor = Math.min(...colorValues);
-						const maxColor = Math.max(...colorValues);
-						const range = maxColor - minColor;
+				if (thirdVariable && validScatterData.some(d => d.thirdValue !== null && d.thirdValue !== undefined)) {
+					if (thirdVariableMode === 'color') {
+						// Group by color variable value ranges
+						const colorValues = validScatterData
+							.filter(d => d.thirdValue !== null && d.thirdValue !== undefined)
+							.map(d => d.thirdValue);
 						
-						// Create 5 color groups
-						const numGroups = Math.min(5, Math.max(2, Math.ceil(Math.sqrt(colorValues.length))));
-						const groupSize = range / numGroups;
-						
-						const colors = [
-							'rgba(59, 130, 246, 0.7)',    // Blue
-							'rgba(16, 185, 129, 0.7)',    // Green
-							'rgba(245, 158, 11, 0.7)',    // Orange
-							'rgba(239, 68, 68, 0.7)',     // Red
-							'rgba(139, 92, 246, 0.7)'     // Purple
-						];
-						
-						for (let i = 0; i < numGroups; i++) {
-							const groupMin = minColor + (i * groupSize);
-							const groupMax = i === numGroups - 1 ? maxColor : minColor + ((i + 1) * groupSize);
+						if (colorValues.length > 0) {
+							const minColor = Math.min(...colorValues);
+							const maxColor = Math.max(...colorValues);
+							const range = maxColor - minColor;
 							
-							const groupData = validScatterData.filter(d => {
-								if (d.colorValue === null || d.colorValue === undefined) return false;
-								return d.colorValue >= groupMin && d.colorValue <= groupMax;
-							});
+							// Create 5 color groups
+							const numGroups = Math.min(5, Math.max(2, Math.ceil(Math.sqrt(colorValues.length))));
+							const groupSize = range / numGroups;
 							
-							if (groupData.length > 0) {
-								const color = colors[i % colors.length];
+							const colors = [
+								'rgba(15, 118, 110, 0.7)',    // Teal 700
+								'rgba(13, 148, 136, 0.7)',    // Teal 600
+								'rgba(20, 184, 166, 0.7)',    // Teal 500
+								'rgba(45, 212, 191, 0.7)',    // Teal 400
+								'rgba(94, 234, 212, 0.7)'     // Teal 300
+							];
+							
+							for (let i = 0; i < numGroups; i++) {
+								const groupMin = minColor + (i * groupSize);
+								const groupMax = i === numGroups - 1 ? maxColor : minColor + ((i + 1) * groupSize);
+								
+								const groupData = validScatterData.filter(d => {
+									if (d.thirdValue === null || d.thirdValue === undefined) return false;
+									return d.thirdValue >= groupMin && d.thirdValue <= groupMax;
+								});
+								
+								if (groupData.length > 0) {
+									const color = colors[i % colors.length];
+									datasets.push({
+										label: `${getIndicatorDisplayName(thirdVariable)}: ${groupMin.toFixed(1)} - ${groupMax.toFixed(1)}`,
+										data: groupData.map(d => ({
+											...d,
+											backgroundColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : color,
+											borderColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : color.replace('0.7)', '1)'),
+											pointRadius: highlightedGeoId === d.geo_id ? 8 : 5,
+											pointHoverRadius: highlightedGeoId === d.geo_id ? 10 : 7
+										})),
+										backgroundColor: color,
+										borderColor: color.replace('0.7)', '1)'),
+										borderWidth: 1,
+										pointRadius: 5,
+										pointHoverRadius: 7
+									});
+								}
+							}
+							
+							// Add points without third variable values as a separate group
+							const noThirdValueData = validScatterData.filter(d => d.thirdValue === null || d.thirdValue === undefined);
+							if (noThirdValueData.length > 0) {
 								datasets.push({
-									label: `${getIndicatorDisplayName(colorVariable)}: ${groupMin.toFixed(1)} - ${groupMax.toFixed(1)}`,
-									data: groupData.map(d => ({
+									label: 'No data',
+									data: noThirdValueData.map(d => ({
 										...d,
-										backgroundColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : color,
-										borderColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : color.replace('0.7)', '1)'),
+										backgroundColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : 'rgba(156, 163, 175, 0.7)',
+										borderColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : 'rgba(156, 163, 175, 1)',
 										pointRadius: highlightedGeoId === d.geo_id ? 8 : 5,
 										pointHoverRadius: highlightedGeoId === d.geo_id ? 10 : 7
 									})),
-									backgroundColor: color,
-									borderColor: color.replace('0.7)', '1)'),
+									backgroundColor: 'rgba(156, 163, 175, 0.7)',
+									borderColor: 'rgba(156, 163, 175, 1)',
 									borderWidth: 1,
 									pointRadius: 5,
 									pointHoverRadius: 7
 								});
 							}
 						}
+					} else if (thirdVariableMode === 'size') {
+						// Size by third variable - single dataset with varying point sizes
+						const sizeValues = validScatterData
+							.filter(d => d.thirdValue !== null && d.thirdValue !== undefined)
+							.map(d => d.thirdValue);
 						
-						// Add points without color values as a separate group
-						const noColorData = validScatterData.filter(d => d.colorValue === null || d.colorValue === undefined);
-						if (noColorData.length > 0) {
-							datasets.push({
-								label: 'No data',
-								data: noColorData.map(d => ({
+						if (sizeValues.length > 0) {
+							const minSize = Math.min(...sizeValues);
+							const maxSize = Math.max(...sizeValues);
+							const sizeRange = maxSize - minSize;
+							
+							// Calculate point sizes (3-15 pixel radius range)
+							const minRadius = 3;
+							const maxRadius = 15;
+							const radiusRange = maxRadius - minRadius;
+							
+							// Calculate point sizes for each data point
+							const dataWithSizes = validScatterData.map(d => {
+								let pointRadius = 5; // Default size
+								
+								if (d.thirdValue !== null && d.thirdValue !== undefined && sizeRange > 0) {
+									// Scale the size based on the third variable value
+									const normalizedValue = (d.thirdValue - minSize) / sizeRange;
+									pointRadius = minRadius + (normalizedValue * radiusRange);
+								}
+								
+								return {
 									...d,
-									backgroundColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : 'rgba(156, 163, 175, 0.7)',
-									borderColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : 'rgba(156, 163, 175, 1)',
-									pointRadius: highlightedGeoId === d.geo_id ? 8 : 5,
-									pointHoverRadius: highlightedGeoId === d.geo_id ? 10 : 7
-								})),
-								backgroundColor: 'rgba(156, 163, 175, 0.7)',
-								borderColor: 'rgba(156, 163, 175, 1)',
-								borderWidth: 1,
-								pointRadius: 5,
-								pointHoverRadius: 7
+									backgroundColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 0.7)' : 'rgba(15, 118, 110, 0.6)',
+									borderColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : 'rgba(15, 118, 110, 1)',
+									calculatedRadius: highlightedGeoId === d.geo_id ? pointRadius + 3 : pointRadius
+								};
 							});
+
+							datasets = [{
+								label: `Sized by ${getIndicatorDisplayName(thirdVariable)}`,
+								data: dataWithSizes,
+								backgroundColor: dataWithSizes.map(d => d.backgroundColor),
+								borderColor: dataWithSizes.map(d => d.borderColor),
+								pointRadius: dataWithSizes.map(d => d.calculatedRadius),
+								pointHoverRadius: dataWithSizes.map(d => d.calculatedRadius + 2),
+								borderWidth: 1
+							}];
 						}
 					}
 				} else {
-					// No color grouping - single dataset with highlighting
+					// No third variable - single dataset with highlighting
 					datasets = [{
 						label: 'Data Points',
 						data: validScatterData.map(d => ({
 							...d,
-							backgroundColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : 'rgba(59, 130, 246, 0.6)',
-							borderColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : 'rgba(59, 130, 246, 1)',
+							backgroundColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : 'rgba(15, 118, 110, 0.6)',
+							borderColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : 'rgba(15, 118, 110, 1)',
 							pointRadius: highlightedGeoId === d.geo_id ? 8 : 5,
 							pointHoverRadius: highlightedGeoId === d.geo_id ? 10 : 7
 						})),
-						backgroundColor: 'rgba(59, 130, 246, 0.6)',
-						borderColor: 'rgba(59, 130, 246, 1)',
+						backgroundColor: 'rgba(15, 118, 110, 0.6)',
+						borderColor: 'rgba(15, 118, 110, 1)',
 						borderWidth: 1,
 						pointRadius: 5,
 						pointHoverRadius: 7
@@ -1001,42 +1128,25 @@
 						},
 						plugins: {
 							...baseConfig.plugins,
-							tooltip: {
-								...baseConfig.plugins.tooltip,
-								callbacks: {
-									...baseConfig.plugins.tooltip.callbacks,
-									title: function(context: any) {
-										const dataPoint = context[0];
-										// For scatter plots, get the geo_name directly from the raw data point
-										const rawDataPoint = dataPoint.raw;
-										return rawDataPoint?.geo_name || rawDataPoint?.label || `Data Point ${dataPoint.dataIndex + 1}`;
+							zoom: {
+								limits: {
+									x: {min: 'original', max: 'original'},
+									y: {min: 'original', max: 'original'}
+								},
+								pan: {
+									enabled: true,
+									mode: 'xy',
+									modifierKey: null
+								},
+								zoom: {
+									wheel: {
+										enabled: true,
+										speed: 0.05, // Reduced zoom speed (default is 0.1)
 									},
-									label: function(context: any) {
-										const dataPoint = context.parsed;
-										const rawDataPoint = context.raw;
-										const labels = [];
-										
-										// Helper function to format numbers to 2 decimal places
-										const formatNumber = (value: any) => {
-											if (value == null || isNaN(value)) return 'N/A';
-											return Number(value).toLocaleString(undefined, { 
-												minimumFractionDigits: 2, 
-												maximumFractionDigits: 2 
-											});
-										};
-										
-										const cleanXAxisName = getIndicatorDisplayName(xAxisVariable);
-										const cleanYAxisName = getIndicatorDisplayName(yAxisVariable);
-										labels.push(`${cleanXAxisName}: ${formatNumber(dataPoint.x)}`);
-										labels.push(`${cleanYAxisName}: ${formatNumber(dataPoint.y)}`);
-										
-										if (colorVariable && rawDataPoint.colorValue !== null && rawDataPoint.colorValue !== undefined) {
-											const cleanColorName = getIndicatorDisplayName(colorVariable);
-											labels.push(`${cleanColorName}: ${formatNumber(rawDataPoint.colorValue)}`);
-										}
-										
-										return labels;
-									}
+									pinch: {
+										enabled: true
+									},
+									mode: 'xy',
 								}
 							}
 						}
@@ -1051,12 +1161,12 @@
 						datasets: [{
 							data: data.map(d => d.value),
 							backgroundColor: [
-								'rgba(59, 130, 246, 0.8)',
-								'rgba(16, 185, 129, 0.8)',
-								'rgba(245, 158, 11, 0.8)',
-								'rgba(239, 68, 68, 0.8)',
-								'rgba(139, 92, 246, 0.8)',
-								'rgba(236, 72, 153, 0.8)'
+								'rgba(15, 118, 110, 0.8)',    // Teal 700
+								'rgba(13, 148, 136, 0.8)',    // Teal 600
+								'rgba(20, 184, 166, 0.8)',    // Teal 500
+								'rgba(45, 212, 191, 0.8)',    // Teal 400
+								'rgba(94, 234, 212, 0.8)',    // Teal 300
+								'rgba(153, 246, 228, 0.8)'    // Teal 200
 							],
 							borderWidth: 2,
 							borderColor: '#ffffff'
@@ -1078,6 +1188,85 @@
 	function getIndicatorDisplayName(indicatorId: string): string {
 		const indicator = $selectedIndicatorsWithMetadata.find(ind => ind.id === indicatorId);
 		return indicator ? indicator.name : indicatorId.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+	}
+
+	// Function to convert state name to abbreviation
+	function getStateAbbreviation(stateName: string): string | null {
+		const stateAbbreviations: { [key: string]: string } = {
+			'Alabama': 'AL',
+			'Alaska': 'AK',
+			'Arizona': 'AZ',
+			'Arkansas': 'AR',
+			'California': 'CA',
+			'Colorado': 'CO',
+			'Connecticut': 'CT',
+			'Delaware': 'DE',
+			'District of Columbia': 'DC',
+			'Florida': 'FL',
+			'Georgia': 'GA',
+			'Hawaii': 'HI',
+			'Idaho': 'ID',
+			'Illinois': 'IL',
+			'Indiana': 'IN',
+			'Iowa': 'IA',
+			'Kansas': 'KS',
+			'Kentucky': 'KY',
+			'Louisiana': 'LA',
+			'Maine': 'ME',
+			'Maryland': 'MD',
+			'Massachusetts': 'MA',
+			'Michigan': 'MI',
+			'Minnesota': 'MN',
+			'Mississippi': 'MS',
+			'Missouri': 'MO',
+			'Montana': 'MT',
+			'Nebraska': 'NE',
+			'Nevada': 'NV',
+			'New Hampshire': 'NH',
+			'New Jersey': 'NJ',
+			'New Mexico': 'NM',
+			'New York': 'NY',
+			'North Carolina': 'NC',
+			'North Dakota': 'ND',
+			'Ohio': 'OH',
+			'Oklahoma': 'OK',
+			'Oregon': 'OR',
+			'Pennsylvania': 'PA',
+			'Rhode Island': 'RI',
+			'South Carolina': 'SC',
+			'South Dakota': 'SD',
+			'Tennessee': 'TN',
+			'Texas': 'TX',
+			'Utah': 'UT',
+			'Vermont': 'VT',
+			'Virginia': 'VA',
+			'Washington': 'WA',
+			'West Virginia': 'WV',
+			'Wisconsin': 'WI',
+			'Wyoming': 'WY',
+			'Puerto Rico': 'PR'
+		};
+		
+		return stateAbbreviations[stateName] || null;
+	}
+
+	// Function to get display name for geographic levels
+	function getGeoLevelDisplayName(geoLevel: string): string {
+		if (!geoLevel) return 'geographic units';
+		
+		switch (geoLevel) {
+			case 'counties':
+				return 'counties';
+			case 'school_districts':
+				return 'school districts';
+			case 'legislative_districts':
+				return 'legislative districts';
+			case 'census_tracts':
+				return 'census tracts';
+			default:
+				// Convert underscores to spaces and capitalize each word
+				return geoLevel.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+		}
 	}
 
 	// Function to update available options based on analysis filters
@@ -1176,6 +1365,16 @@
 		if (isChartConfigValid()) {
 			debounceApiCall(fetchChartData, DEBOUNCE_DELAY);
 		}
+	}
+	
+	// Auto-generate charts when configuration changes
+	$: if (browser && selectedChartType && xAxisVariable && yAxisVariable && selectedYear && isChartConfigValid()) {
+		debounceApiCall(fetchChartData, DEBOUNCE_DELAY);
+	}
+	
+	// Auto-generate pie charts when configuration changes
+	$: if (browser && selectedChartType === 'pie' && selectedPieChartType && selectedYear && isChartConfigValid()) {
+		debounceApiCall(fetchChartData, DEBOUNCE_DELAY);
 	}
 	
 	// Function to handle configuration changes and trigger rerender
@@ -1386,19 +1585,6 @@
 		
 		<!-- Content -->
 		<div class="relative">
-			<!-- Loading overlay -->
-			{#if isLoading}
-				<div 
-					class="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center z-30"
-					in:receive={{ key: 'loading' }}
-					out:send={{ key: 'loading' }}
-				>
-					<div class="flex items-center space-x-3">
-						<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-						<span class="text-gray-700 font-medium">Generating chart...</span>
-					</div>
-				</div>
-			{/if}
 			
 			<!-- Error state -->
 			{#if error}
@@ -1421,26 +1607,32 @@
 			
 			<!-- Selection prompt -->
 			{#if !$isAnalysisReady && selectedChartType !== 'pie' && !isLoading}
-				<div class="p-8 text-center">
-					<div class="text-gray-400 text-xl mb-2">📊</div>
-					<h4 class="text-gray-700 font-semibold mb-2">Ready to Visualize</h4>
-					<p class="text-gray-600 text-sm">
-						Please select indicators, geography level, and years to start creating charts.
+				<div class="p-12 text-center">
+					<div class="w-20 h-20 bg-gradient-to-br from-teal-100 to-teal-200 rounded-3xl mx-auto mb-8 flex items-center justify-center shadow-elegant">
+						<svg class="w-10 h-10 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4"/>
+						</svg>
+					</div>
+					<h4 class="text-2xl font-bold text-teal-900 mb-4">Configure Your Analysis</h4>
+					<p class="text-teal-700 text-lg mb-8 max-w-md mx-auto leading-relaxed">
+						Select indicators, geography level, and years to view the data table.
 					</p>
+					<Button
+						variant="primary"
+						size="lg"
+						on:click={() => showVariableSelector.set(true)}
+					>
+						<svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+						</svg>
+						Open Variable Selector
+					</Button>
 				</div>
 			{/if}
 			
 			<!-- Chart type selection -->
 			{#if !selectedChartType}
 				<div class="p-6">
-					<div class="text-center mb-8">
-						<h4 class="text-xl font-semibold text-gray-900 mb-2">
-							How would you like to visualize your data?
-						</h4>
-						<p class="text-gray-600">
-							Choose the visualization that best fits your analytical goal
-						</p>
-					</div>
 					
 					<div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
 						{#each chartOptions as option}
@@ -1523,6 +1715,28 @@
 												</p>
 											</div>
 										{/if}
+
+										<!-- Geographic Unit Selection for Line Charts and Bar Charts - moved to top -->
+										{#if (selectedChartType === 'line' || selectedChartType === 'bar') && availableGeoUnits.length > 0}
+											<div>
+												<label class="block text-sm font-medium text-gray-700 mb-2">
+													Geographic Units to Display
+												</label>
+												<GeographicUnitSelector
+													availableUnits={availableGeoUnits}
+													bind:selectedUnits={selectedGeoUnits}
+													on:change={handleConfigChange}
+													placeholder="Search geographic units..."
+												/>
+												<p class="text-xs text-gray-500 mt-1">
+													{#if selectedChartType === 'line'}
+														Select which {getGeoLevelDisplayName($currentGeoLevel)} to show as separate lines on the chart
+													{:else if selectedChartType === 'bar'}
+														Select which {getGeoLevelDisplayName($currentGeoLevel)} to include in the bar chart
+													{/if}
+												</p>
+											</div>
+										{/if}
 										
 										<!-- X-Axis Variable (only shown for scatter charts) -->
 										{#if selectedChartType === 'scatter'}
@@ -1579,37 +1793,56 @@
 												</p>
 											</div>
 										{/if}
-
-										<!-- Geographic Unit Selection for Line Charts -->
-										{#if selectedChartType === 'line' && availableGeoUnits.length > 0}
+										
+										<!-- Third Variable Configuration for Scatter Plot -->
+										{#if selectedChartType === 'scatter'}
+											<!-- Toggle between Color By and Size By -->
 											<div>
-												<label class="block text-sm font-medium text-gray-700 mb-2">
-													Geographic Units to Display
+												<label class="block text-sm font-medium text-gray-700 mb-3">
+													Third Variable Mode
 												</label>
-												<GeographicUnitSelector
-													availableUnits={availableGeoUnits}
-													bind:selectedUnits={selectedGeoUnits}
-													on:change={handleConfigChange}
-													placeholder="Search geographic units..."
-												/>
-												<p class="text-xs text-gray-500 mt-1">
-													Select which {$currentGeoLevel}s to show as separate lines on the chart
+												<div class="flex space-x-4 mb-3">
+													<label class="flex items-center">
+														<input
+															type="radio"
+															bind:group={thirdVariableMode}
+															value="color"
+															on:change={handleConfigChange}
+															class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+														/>
+														<span class="ml-2 text-sm text-gray-700">Color by variable</span>
+													</label>
+													<label class="flex items-center">
+														<input
+															type="radio"
+															bind:group={thirdVariableMode}
+															value="size"
+															on:change={handleConfigChange}
+															class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+														/>
+														<span class="ml-2 text-sm text-gray-700">Size by variable</span>
+													</label>
+												</div>
+												<p class="text-xs text-gray-500 mb-3">
+													{#if thirdVariableMode === 'color'}
+														Points will be colored based on the selected variable's value ranges
+													{:else}
+														Point sizes will vary based on the selected variable's values
+													{/if}
 												</p>
 											</div>
-										{/if}
-										
-										<!-- Color Variable (optional) -->
-										{#if selectedChartType === 'scatter'}
+
+											<!-- Third Variable Selector -->
 											<div>
 												<label class="block text-sm font-medium text-gray-700 mb-2">
-													Color By (Optional)
+													{thirdVariableMode === 'color' ? 'Color By' : 'Size By'} (Optional)
 												</label>
 												<select
-													bind:value={colorVariable}
+													bind:value={thirdVariable}
 													on:change={handleConfigChange}
 													class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
 												>
-													<option value="">No color grouping</option>
+													<option value="">No {thirdVariableMode === 'color' ? 'color grouping' : 'size variation'}</option>
 													{#each availableVariables as variable}
 														<option value={variable}>{getIndicatorDisplayName(variable)}</option>
 													{/each}
@@ -1669,16 +1902,28 @@
 												</p>
 											</div>
 										</div>
-									{:else if chartData.length === 0 && !isLoading}
+									{:else if (selectedChartType === 'line' || selectedChartType === 'bar') && selectedGeoUnits.length === 0 && availableGeoUnits.length > 0}
 										<div class="h-64 flex items-center justify-center bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
 											<div class="text-center">
-												<div class="text-gray-400 text-xl mb-2">🎯</div>
-												<p class="text-gray-600 text-sm">
-													Click "Generate Chart" to create your visualization
+												<div class="w-12 h-12 mx-auto mb-4 rounded-xl bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center shadow-elegant">
+													<svg class="w-6 h-6 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+													</svg>
+												</div>
+												<p class="text-gray-600 text-sm mb-2">
+													{#if selectedChartType === 'line'}
+														Select geographic units from the panel to display trend lines
+													{:else if selectedChartType === 'bar'}
+														Select geographic units from the panel to include in the bar chart
+													{/if}
+												</p>
+												<p class="text-gray-500 text-xs">
+													Use the "Geographic Units to Display" selector in the configuration panel
 												</p>
 											</div>
 										</div>
-									{:else}
+									{:else if chartData.length > 0}
 										<!-- Search Bar for Scatter Plot -->
 										{#if selectedChartType === 'scatter' && availableGeoUnitsForSearch.length > 0}
 											<div class="mb-4">
@@ -1736,6 +1981,21 @@
 										
 										<!-- Chart Canvas -->
 										<div class="relative h-96 w-full">
+											<!-- Loading overlay for chart area only -->
+											{#if isLoading}
+												<div 
+													class="absolute inset-0 bg-white bg-opacity-90 backdrop-blur-sm flex items-center justify-center z-30 rounded-lg"
+													in:receive={{ key: 'loading' }}
+													out:send={{ key: 'loading' }}
+												>
+													<LoadingSpinner 
+														variant="ring" 
+														size="lg" 
+														color="primary" 
+														text="Loading chart data..." 
+													/>
+												</div>
+											{/if}
 											<canvas 
 												bind:this={chartCanvas}
 												class="w-full h-full"
@@ -1748,19 +2008,46 @@
 											</div>
 										{/if}
 										
-										<!-- Export Button -->
+										<!-- Chart Controls -->
 										{#if chartInstance && chartData.length > 0}
-											<div class="mt-4 flex justify-end">
-												<Button
-													variant="outline"
-													size="sm"
-													on:click={exportChartAsPNG}
-												>
-													<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-													</svg>
-													Export as PNG
-												</Button>
+											<div class="mt-4 flex justify-between items-center">
+												<!-- Zoom Instructions for Scatter Plot -->
+												{#if selectedChartType === 'scatter'}
+													<div class="text-xs text-gray-500">
+														<p class="mb-1">🖱️ <strong>Mouse wheel:</strong> Zoom in/out</p>
+														<p>🖱️ <strong>Click & drag:</strong> Pan around</p>
+													</div>
+												{:else}
+													<div></div>
+												{/if}
+												
+												<div class="flex space-x-2">
+													<!-- Reset Zoom Button (only for scatter plots) -->
+													{#if selectedChartType === 'scatter'}
+														<Button
+															variant="outline"
+															size="sm"
+															on:click={() => chartInstance?.resetZoom()}
+														>
+															<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+																<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+															</svg>
+															Reset Zoom
+														</Button>
+													{/if}
+													
+													<!-- Export Button -->
+													<Button
+														variant="outline"
+														size="sm"
+														on:click={exportChartAsPNG}
+													>
+														<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+															<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+														</svg>
+														Export as PNG
+													</Button>
+												</div>
 											</div>
 										{/if}
 									{/if}

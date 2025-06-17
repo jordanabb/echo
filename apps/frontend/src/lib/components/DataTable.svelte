@@ -13,6 +13,8 @@
 	import { crossfade } from 'svelte/transition';
 	import { quintOut } from 'svelte/easing';
 	import { formatValueByType } from '$lib/utils';
+	import { showVariableSelector } from '$lib/stores/interactiveSteps';
+	import { getStateNameByCode } from '$lib/constants/states';
 	import Card from './Card.svelte';
 	import Button from './Button.svelte';
 	import SkeletonLoader from './SkeletonLoader.svelte';
@@ -26,6 +28,7 @@
 	let filteredData: any[] = [];
 	let columns: string[] = [];
 	let debounceTimer: NodeJS.Timeout | null = null;
+	let hasAttemptedLoad = false; // Track if we've attempted to load data
 	
 	// Sorting and filtering state
 	let sortColumn: string | null = null;
@@ -290,8 +293,14 @@
 			return '—';
 		}
 		
+		// Handle state_fips column - convert FIPS code to state name
+		if (columnName === 'state_fips') {
+			const stateName = getStateNameByCode(String(value));
+			return stateName || String(value);
+		}
+		
 		// Skip formatting for non-numeric columns
-		if (['geo_id', 'geo_name', 'year'].includes(columnName)) {
+		if (['geo_id', 'geo_name', 'year', 'state_fips'].includes(columnName)) {
 			return String(value);
 		}
 		
@@ -314,6 +323,7 @@
 		const specialCases: Record<string, string> = {
 			'geo_id': 'Geography ID',
 			'geo_name': 'Geography Name',
+			'state_fips': 'State',
 			'year': 'Year'
 		};
 		
@@ -338,7 +348,7 @@
 	
 	// Function to determine if a column should be sticky (fixed position)
 	function isStickyColumn(columnName: string): boolean {
-		return ['geo_name', 'year'].includes(columnName);
+		return ['geo_name', 'state_fips', 'year'].includes(columnName);
 	}
 	
 	// Function to get column CSS classes
@@ -346,7 +356,10 @@
 		const baseClasses = 'px-4 py-3 text-left';
 		
 		if (isStickyColumn(columnName)) {
-			const leftOffset = columnName === 'geo_name' ? 'left-0' : 'left-48';
+			let leftOffset = 'left-0';
+			if (columnName === 'state_fips') leftOffset = 'left-48';
+			else if (columnName === 'year') leftOffset = 'left-96';
+			
 			return `${baseClasses} sticky ${leftOffset} bg-white border-r border-gray-200 z-10`;
 		}
 		
@@ -358,7 +371,10 @@
 		const baseClasses = 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b border-gray-200';
 		
 		if (isStickyColumn(columnName)) {
-			const leftOffset = columnName === 'geo_name' ? 'left-0' : 'left-48';
+			let leftOffset = 'left-0';
+			if (columnName === 'state_fips') leftOffset = 'left-48';
+			else if (columnName === 'year') leftOffset = 'left-96';
+			
 			return `${baseClasses} sticky ${leftOffset} bg-gray-50 border-r border-gray-200 z-20`;
 		}
 		
@@ -424,16 +440,6 @@
 				</div>
 			{/if}
 			
-			<!-- No data state -->
-			{#if !isLoading && !error && tableData.length === 0 && $isAnalysisReady}
-				<EmptyState 
-					variant="data"
-					title="No Data Available"
-					description="No data available for this selection. Please try a different year or indicator."
-					actionText="Adjust Filters"
-					showAction={false}
-				/>
-			{/if}
 			
 			<!-- Selection prompt -->
 			{#if !$isAnalysisReady && !isLoading}
@@ -442,11 +448,7 @@
 					title="Configure Your Analysis"
 					description="Select indicators, geography level, and years to view the data table."
 					actionText="Open Variable Selector"
-					on:click={() => {
-						// Dispatch event to open variable selector
-						const event = new CustomEvent('openVariableSelector');
-						document.dispatchEvent(event);
-					}}
+					on:click={() => showVariableSelector.set(true)}
 				/>
 			{/if}
 			

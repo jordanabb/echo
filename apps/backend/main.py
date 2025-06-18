@@ -513,8 +513,18 @@ def get_table_data(request: schemas.TableDataRequest, db: Session = Depends(get_
 
     pivot_sql = ", ".join(pivot_columns)
 
-    # Note: Assumes geo_id is the unique key across all years in the `geographies` table.
-    # If not, the join might need adjustment.
+    # Build the SQL query with optional geo_level filtering
+    geo_level_clause = ""
+    query_params = {
+        "geo_ids": tuple(request.geo_ids),
+        "indicator_ids": tuple(valid_indicator_names),  # Use the validated names for DB query
+        "years": tuple(request.years),
+    }
+    
+    if request.geo_level:
+        geo_level_clause = "AND g.geo_level = :geo_level"
+        query_params["geo_level"] = request.geo_level
+    
     sql_query = text(f"""
         SELECT
             r.geo_id,
@@ -523,10 +533,11 @@ def get_table_data(request: schemas.TableDataRequest, db: Session = Depends(get_
             r.year,
             {pivot_sql}
         FROM results_data r
-        JOIN geographies g ON r.geo_id = g.geo_id
+        JOIN geographies g ON r.geo_id = g.geo_id AND g.year = r.year
         WHERE r.geo_id IN :geo_ids
           AND r.indicator_id IN :indicator_ids
           AND r.year IN :years
+          {geo_level_clause}
         GROUP BY r.geo_id, g.geo_name, g.state_fips, r.year
         ORDER BY g.geo_name, r.year;
     """)
@@ -535,11 +546,7 @@ def get_table_data(request: schemas.TableDataRequest, db: Session = Depends(get_
     df = pd.read_sql_query(
         sql_query,
         db.bind,
-        params={
-            "geo_ids": tuple(request.geo_ids),
-            "indicator_ids": tuple(valid_indicator_names),  # Use the validated names for DB query
-            "years": tuple(request.years),
-        }
+        params=query_params
     )
     
     if df.empty:

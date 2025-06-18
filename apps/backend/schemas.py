@@ -50,6 +50,7 @@ class TableDataRequest(BaseModel):
     geo_ids: List[str]
     indicator_ids: List[str]
     years: List[int]
+    geo_level: Optional[str] = None  # Add geo_level to filter by geographic level
 
 # The response for table data is a list of dictionaries, which can be
 # represented in Python as List[Dict[str, Any]]. We don't need a rigid

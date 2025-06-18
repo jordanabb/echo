@@ -56,7 +56,6 @@
 	async function fetchGeoIds(geoLevel: string, year: number, stateFilter?: string | null): Promise<string[]> {
 		try {
 			const params = new URLSearchParams({
-				indicator: 'total_population', // Use a common indicator to get all geo_ids
 				geo_level: geoLevel,
 				year: year.toString()
 			});
@@ -67,8 +66,9 @@
 				console.log('DataTable: Adding state filter:', stateFilter);
 			}
 			
-			console.log('DataTable: Fetching geo_ids with URL:', `/api/map-view?${params}`);
-			const response = await fetch(`/api/map-view?${params}`);
+			console.log('DataTable: Fetching geo_ids with URL:', `/api/geometries?${params}`);
+			// Use the geometries endpoint which properly filters by geo_level
+			const response = await fetch(`/api/geometries?${params}`);
 			
 			if (!response.ok) {
 				throw new Error(`Failed to fetch geo_ids: ${response.statusText}`);
@@ -76,7 +76,7 @@
 			
 			const data = await response.json();
 			
-			// Extract geo_ids from the response
+			// Extract geo_ids from the response - geometries endpoint ensures proper geo_level filtering
 			return data.geoJson?.features?.map((feature: any) => feature.properties?.geo_id) || [];
 		} catch (err) {
 			console.error('Error fetching geo_ids:', err);
@@ -107,11 +107,12 @@
 				throw new Error('No geographic areas found for the selected filters');
 			}
 			
-			// Prepare the request payload
+			// Prepare the request payload with geo_level to ensure proper filtering
 			const requestPayload = {
 				geo_ids: Array.from(allGeoIds),
 				indicator_ids: $currentSelectedIndicators,
-				years: $currentYears
+				years: $currentYears,
+				geo_level: $currentGeoLevel  // Add geo_level to filter out mixed geographic levels
 			};
 			
 			console.log('Fetching table data with payload:', requestPayload);

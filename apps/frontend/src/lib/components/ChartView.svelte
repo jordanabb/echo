@@ -110,6 +110,9 @@
 	let highlightedGeoId: string | null = null;
 	let availableGeoUnitsForSearch: {geo_id: string, geo_name: string}[] = [];
 	
+	// Trend line functionality for scatter plot
+	let showTrendLine: boolean = false;
+	
 	// Geographic unit selection for line charts
 	let availableGeoUnits: {geo_id: string, geo_name: string}[] = [];
 	let selectedGeoUnits: string[] = [];
@@ -141,7 +144,7 @@
 	}
 	
 	// Function to handle chart type selection
-	function selectChartType(chartType: ChartType) {
+	async function selectChartType(chartType: ChartType) {
 		selectedChartType = chartType;
 		
 		// Reset configuration when changing chart type
@@ -183,6 +186,11 @@
 			}
 		}
 		
+		// Fetch available geographic units for line and bar charts
+		if ((chartType === 'line' || chartType === 'bar') && $currentGeoLevel) {
+			await fetchAvailableGeoUnits();
+		}
+		
 		// Auto-generate chart if configuration is complete after setting defaults
 		setTimeout(() => {
 			if (isChartConfigValid()) {
@@ -201,11 +209,10 @@
 	// Function to fetch all geo_ids for a given geography level and year
 	async function fetchGeoIds(geoLevel: string, year: number): Promise<string[]> {
 		try {
-			// For pie charts, if no geo level is set, default to counties
-			const effectiveGeoLevel = geoLevel || 'counties';
+			// For pie charts, if no geo level is set, default to county
+			const effectiveGeoLevel = geoLevel || 'county';
 			
 			const params = new URLSearchParams({
-				indicator: 'total_population', // Use a common indicator to get all geo_ids
 				geo_level: effectiveGeoLevel,
 				year: year.toString()
 			});
@@ -215,7 +222,8 @@
 				params.set('state_filter', $currentGeoFilter);
 			}
 			
-			const response = await fetch(`/api/map-view?${params}`);
+			// Use the geometries endpoint which properly filters by geo_level
+			const response = await fetch(`/api/geometries?${params}`);
 			
 			if (!response.ok) {
 				throw new Error(`Failed to fetch geo_ids: ${response.statusText}`);
@@ -223,24 +231,8 @@
 			
 			const data = await response.json();
 			
-			// Extract geo_ids from the response and filter by state if needed
-			let geoIds = data.geoJson?.features?.map((feature: any) => feature.properties?.geo_id) || [];
-			
-			// Additional client-side filtering by state if needed
-			if ($currentGeoFilter && data.geoJson?.features) {
-				geoIds = data.geoJson.features
-					.filter((feature: any) => {
-						const geoId = feature.properties?.geo_id;
-						// For counties, check if the first 2 digits match the state FIPS code
-						// For other geography types, you might need different logic
-						if (geoId && typeof geoId === 'string' && geoId.length >= 2) {
-							const stateFipsCode = geoId.substring(0, 2);
-							return stateFipsCode === $currentGeoFilter;
-						}
-						return false;
-					})
-					.map((feature: any) => feature.properties?.geo_id);
-			}
+			// Extract geo_ids from the response - geometries endpoint ensures proper geo_level filtering
+			const geoIds = data.geoJson?.features?.map((feature: any) => feature.properties?.geo_id) || [];
 			
 			return geoIds;
 		} catch (err) {
@@ -260,6 +252,55 @@
 				return ['asian_population', 'black_population', 'native_population', 'pacific_islander_population', 'two_or_more_races_population', 'other_race_population'];
 			default:
 				return [];
+		}
+	}
+
+	// Function to fetch available geographic units for the current geo level
+	async function fetchAvailableGeoUnits() {
+		if (!$currentGeoLevel) return;
+		
+		try {
+			// Use the latest year from available years or current years
+			const yearToUse = availableYears.length > 0 
+				? availableYears[availableYears.length - 1] 
+				: ($currentYears.length > 0 ? $currentYears[$currentYears.length - 1] : 2022);
+			
+			const params = new URLSearchParams({
+				geo_level: $currentGeoLevel,
+				year: yearToUse.toString()
+			});
+			
+			// Apply state filter if one is selected
+			if ($currentGeoFilter) {
+				params.set('state_filter', $currentGeoFilter);
+			}
+			
+			console.log('Fetching available geo units with URL:', `/api/geometries?${params}`);
+			const response = await fetch(`/api/geometries?${params}`);
+			
+			if (!response.ok) {
+				throw new Error(`Failed to fetch geographic units: ${response.statusText}`);
+			}
+			
+			const data = await response.json();
+			
+			// Extract geo units from the response
+			if (data.geoJson?.features) {
+				const units = data.geoJson.features.map((feature: any) => ({
+					geo_id: feature.properties?.geo_id || '',
+					geo_name: feature.properties?.geo_name || 'Unknown'
+				}));
+				
+				// Sort by name
+				availableGeoUnits = units.sort((a: any, b: any) => 
+					a.geo_name.localeCompare(b.geo_name)
+				);
+				
+				console.log(`Fetched ${availableGeoUnits.length} geographic units for ${$currentGeoLevel}`);
+			}
+		} catch (err) {
+			console.error('Error fetching available geographic units:', err);
+			availableGeoUnits = [];
 		}
 	}
 
@@ -303,7 +344,7 @@
 			
 			// Fetch geo_ids for each year (in case different years have different geographies)
 			// For pie charts, use a default geo level if none is selected
-			const geoLevelToUse = selectedChartType === 'pie' && !$currentGeoLevel ? 'counties' : $currentGeoLevel;
+			const geoLevelToUse = selectedChartType === 'pie' && !$currentGeoLevel ? 'county' : $currentGeoLevel;
 			
 			for (const year of yearsToFetch) {
 				const yearGeoIds = await fetchGeoIds(geoLevelToUse, year);
@@ -326,11 +367,12 @@
 				throw new Error('No indicators available for the selected chart configuration');
 			}
 			
-			// Prepare the request payload for table data API
+			// Prepare the request payload for table data API with geo_level
 			const requestPayload = {
 				geo_ids: Array.from(allGeoIds),
 				indicator_ids: indicatorIds,
-				years: selectedChartType === 'pie' ? [selectedYear || 2022] : (selectedYear ? [selectedYear] : $currentYears)
+				years: selectedChartType === 'pie' ? [selectedYear || 2022] : (selectedYear ? [selectedYear] : $currentYears),
+				geo_level: geoLevelToUse  // Add geo_level to filter out mixed geographic levels
 			};
 			
 			console.log('Fetching chart data with payload:', requestPayload);
@@ -364,15 +406,8 @@
 				selectedPieChartType
 			});
 			
-			// Extract available geographic units from the data
-			if (selectedChartType === 'line' || selectedChartType === 'bar') {
-				const uniqueGeoUnits = [...new Map(
-					data.map(row => [row.geo_id, {geo_id: row.geo_id, geo_name: row.geo_name}])
-				).values()];
-				availableGeoUnits = uniqueGeoUnits.sort((a, b) => a.geo_name.localeCompare(b.geo_name));
-				
-				// Don't select any units by default - user must choose
-			}
+			// Don't extract geographic units from table data - we already have them from fetchGeoIds
+			// This ensures we only show units that match the selected geographic level
 			
 			// Transform the data based on chart type
 			chartData = transformDataForChart(data, selectedChartType);
@@ -710,6 +745,45 @@
 		return [];
 	}
 	
+	// Function to calculate linear regression for trend line
+	function calculateLinearRegression(data: any[]): {slope: number, intercept: number, r2: number} | null {
+		if (!data || data.length < 2) return null;
+		
+		// Filter out invalid data points
+		const validData = data.filter(d => 
+			typeof d.x === 'number' && 
+			typeof d.y === 'number' && 
+			!isNaN(d.x) && 
+			!isNaN(d.y) &&
+			isFinite(d.x) &&
+			isFinite(d.y)
+		);
+		
+		if (validData.length < 2) return null;
+		
+		const n = validData.length;
+		const sumX = validData.reduce((sum, d) => sum + d.x, 0);
+		const sumY = validData.reduce((sum, d) => sum + d.y, 0);
+		const sumXY = validData.reduce((sum, d) => sum + (d.x * d.y), 0);
+		const sumXX = validData.reduce((sum, d) => sum + (d.x * d.x), 0);
+		const sumYY = validData.reduce((sum, d) => sum + (d.y * d.y), 0);
+		
+		// Calculate slope and intercept
+		const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+		const intercept = (sumY - slope * sumX) / n;
+		
+		// Calculate R-squared
+		const meanY = sumY / n;
+		const totalSumSquares = sumYY - n * meanY * meanY;
+		const residualSumSquares = validData.reduce((sum, d) => {
+			const predicted = slope * d.x + intercept;
+			return sum + Math.pow(d.y - predicted, 2);
+		}, 0);
+		const r2 = 1 - (residualSumSquares / totalSumSquares);
+		
+		return { slope, intercept, r2 };
+	}
+
 	// Function to render the chart using Chart.js
 	function renderChart() {
 		if (!chartCanvas || !selectedChartType || chartData.length === 0) {
@@ -1105,6 +1179,38 @@
 					}];
 				}
 				
+				// Add trend line if enabled
+				if (showTrendLine && validScatterData.length >= 2) {
+					const regression = calculateLinearRegression(validScatterData);
+					if (regression) {
+						// Calculate the range of x values to draw the trend line across
+						const xValues = validScatterData.map(d => d.x);
+						const minX = Math.min(...xValues);
+						const maxX = Math.max(...xValues);
+						
+						// Generate trend line points
+						const trendLineData = [
+							{ x: minX, y: regression.slope * minX + regression.intercept },
+							{ x: maxX, y: regression.slope * maxX + regression.intercept }
+						];
+						
+						// Add trend line dataset
+						datasets.push({
+							label: `Trend Line (R² = ${regression.r2.toFixed(3)})`,
+							data: trendLineData,
+							type: 'line',
+							borderColor: 'rgba(245, 158, 11, 1)', // Amber 500 for trend line
+							backgroundColor: 'rgba(245, 158, 11, 0.1)',
+							borderWidth: 2,
+							pointRadius: 0,
+							pointHoverRadius: 0,
+							tension: 0,
+							fill: false,
+							order: 1 // Ensure trend line appears behind scatter points
+						});
+					}
+				}
+				
 				return {
 					type: 'scatter' as const,
 					data: { datasets },
@@ -1356,12 +1462,20 @@
 	
 	$: if (browser && selectedChartType && $currentGeoLevel) {
 		updateAvailableOptions();
+		// Re-fetch available geographic units when geo level changes
+		if ((selectedChartType === 'line' || selectedChartType === 'bar') && $currentGeoLevel) {
+			fetchAvailableGeoUnits();
+		}
 		if (isChartConfigValid()) {
 			debounceApiCall(fetchChartData, DEBOUNCE_DELAY);
 		}
 	}
 	
-	$: if (browser && selectedChartType && $currentGeoFilter) {
+	$: if (browser && selectedChartType && $currentGeoFilter !== undefined) {
+		// Re-fetch available geographic units when state filter changes
+		if ((selectedChartType === 'line' || selectedChartType === 'bar') && $currentGeoLevel) {
+			fetchAvailableGeoUnits();
+		}
 		if (isChartConfigValid()) {
 			debounceApiCall(fetchChartData, DEBOUNCE_DELAY);
 		}
@@ -1848,6 +1962,22 @@
 													{/each}
 												</select>
 											</div>
+
+											<!-- Trend Line Toggle -->
+											<div>
+												<label class="flex items-center">
+													<input
+														type="checkbox"
+														bind:checked={showTrendLine}
+														on:change={handleConfigChange}
+														class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+													/>
+													<span class="ml-2 text-sm font-medium text-gray-700">Show Trend Line</span>
+												</label>
+												<p class="text-xs text-gray-500 mt-1">
+													Displays a linear regression line showing the overall relationship between variables
+												</p>
+											</div>
 										{/if}
 										
 										<!-- Year Selection -->
@@ -1896,9 +2026,46 @@
 									{#if !isChartConfigValid()}
 										<div class="h-64 flex items-center justify-center bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
 											<div class="text-center">
-												<div class="text-gray-400 text-xl mb-2">📊</div>
-												<p class="text-gray-600 text-sm">
-													Configure your chart settings to see the visualization
+												<div class="w-12 h-12 bg-gradient-to-br from-teal-100 to-teal-200 rounded-xl mx-auto mb-4 flex items-center justify-center shadow-elegant">
+													<svg class="w-6 h-6 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+														{#if selectedChartType === 'bar'}
+															<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+														{:else if selectedChartType === 'scatter'}
+															<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"/>
+														{:else if selectedChartType === 'line'}
+															<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"/>
+														{:else if selectedChartType === 'pie'}
+															<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"/>
+														{:else}
+															<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+														{/if}
+													</svg>
+												</div>
+												<p class="text-teal-900 font-semibold text-sm mb-2">
+													{#if selectedChartType === 'bar'}
+														Configure Bar Chart Settings
+													{:else if selectedChartType === 'scatter'}
+														Configure Scatter Plot Settings
+													{:else if selectedChartType === 'line'}
+														Configure Line Chart Settings
+													{:else if selectedChartType === 'pie'}
+														Configure Pie Chart Settings
+													{:else}
+														Configure Chart Settings
+													{/if}
+												</p>
+												<p class="text-teal-700 text-sm">
+													{#if selectedChartType === 'bar'}
+														Select a variable and year to compare values across geographies
+													{:else if selectedChartType === 'scatter'}
+														Select X and Y axis variables and a year to explore relationships
+													{:else if selectedChartType === 'line'}
+														Select a variable and geographic units to track changes over time
+													{:else if selectedChartType === 'pie'}
+														Select a breakdown type and year to show composition
+													{:else}
+														Complete the configuration to see your visualization
+													{/if}
 												</p>
 											</div>
 										</div>
@@ -1920,6 +2087,32 @@
 												</p>
 												<p class="text-gray-500 text-xs">
 													Use the "Geographic Units to Display" selector in the configuration panel
+												</p>
+											</div>
+										</div>
+									{:else if !isLoading && isChartConfigValid() && chartData.length === 0}
+										<div class="h-64 flex items-center justify-center bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+											<div class="text-center">
+												<div class="w-12 h-12 bg-gradient-to-br from-teal-100 to-teal-200 rounded-xl mx-auto mb-4 flex items-center justify-center shadow-elegant">
+													<svg class="w-6 h-6 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+													</svg>
+												</div>
+												<p class="text-teal-900 font-semibold text-sm mb-2">
+													No Data Available
+												</p>
+												<p class="text-teal-700 text-sm max-w-sm mx-auto">
+													{#if selectedChartType === 'bar'}
+														No data found for the selected variable and year in the chosen geographic units
+													{:else if selectedChartType === 'scatter'}
+														No data found for the selected variables and year in the current geographic area
+													{:else if selectedChartType === 'line'}
+														No data found for the selected variable and years in the chosen geographic units
+													{:else if selectedChartType === 'pie'}
+														No data found for the selected breakdown type and year in the current geographic area
+													{:else}
+														No data found for the current selection
+													{/if}
 												</p>
 											</div>
 										</div>

@@ -283,30 +283,30 @@ INDICATOR_METADATA = {
         "name": "SNAP Receipt in Past 12 Months (% Adults)",
         "theme": "Economic Security",
         "description": "Percent of adults who received SNAP benefits in the past 12 months.",
-        "available_years": [2021, 2022]
+        "available_years": [2022]
     },
     "food_insecurity": {
         "name": "Food Insecurity in Past 12 Months (% Adults)",
         "theme": "Economic Security",
         "description": "Percent of adults who experienced food insecurity in the past 12 months.",
-        "available_years": [2021, 2022]
+        "available_years": [2022]
     },
     "housing_insecurity": {
         "name": "Housing Insecurity in Past 12 Months (% Adults)",
         "theme": "Economic Security",
         "description": "Percent of adults who experienced housing insecurity in the past 12 months.",
-        "available_years": [2021, 2022]
+        "available_years": [2022]
     },
     "unreliable_transportation": {
         "name": "Unreliable Transportation in Past 12 Months (% Adults)",
         "theme": "Economic Security",
         "description": "Percent of adults who experienced unreliable transportation in the past 12 months.",
-        "available_years": [2021, 2022]
+        "available_years": [2022]
     },
     "utility_shutoff": {
         "name": "Utility Shut-Off Notice in Past 12 Months (% Adults)",
         "theme": "Economic Security",
         "description": "Percent of adults who received a utility shut-off notice in the past 12 months.",
-        "available_years": [2021, 2022]
+        "available_years": [2022]
     },
 }

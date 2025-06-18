@@ -7,6 +7,7 @@
 		currentMapDisplayIndicator,
 		selectedIndicatorsWithMetadata
 	} from '$lib/stores/unifiedFilters';
+	import type { IndicatorMetadata } from '$lib/stores/metadata';
 
 	// Event dispatcher for control changes
 	const dispatch = createEventDispatcher<{
@@ -23,6 +24,14 @@
 	$: showYearControls = $currentYears.length > 1;
 	$: showIndicatorControls = $currentSelectedIndicators.length > 1;
 	$: shouldShow = showYearControls || showIndicatorControls;
+
+	/**
+	 * Checks if a variable is available for the current display year
+	 */
+	function isVariableAvailableForDisplayYear(indicator: IndicatorMetadata): boolean {
+		if (!displayYear) return true;
+		return indicator.available_years.includes(displayYear);
+	}
 
 	/**
 	 * Handles year selection
@@ -107,14 +116,24 @@
 				</label>
 				<div class="space-y-1">
 					{#each $currentSelectedIndicators as indicatorId}
+						{@const indicator = $selectedIndicatorsWithMetadata.find(ind => ind.id === indicatorId)}
 						{@const isActive = displayIndicator === indicatorId}
 						{@const displayName = getIndicatorDisplayName(indicatorId)}
+						{@const isAvailable = indicator ? isVariableAvailableForDisplayYear(indicator) : true}
 						<button
-							class="block px-2 py-1 text-xs rounded border text-left transition-colors whitespace-nowrap {isActive ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}"
-							on:click={() => selectIndicator(indicatorId)}
-							title={displayName}
+							class="block px-2 py-1 text-xs rounded border text-left transition-colors whitespace-nowrap relative {isActive && isAvailable ? 'bg-teal-600 text-white border-teal-600' : isAvailable ? 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50' : 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-60'}"
+							on:click={() => isAvailable && selectIndicator(indicatorId)}
+							title={isAvailable ? displayName : `${displayName} - Not available for ${displayYear}`}
+							disabled={!isAvailable}
 						>
-							{truncateIndicatorName(displayName, 25)}
+							<span class="flex items-center gap-1">
+								{truncateIndicatorName(displayName, 25)}
+								{#if !isAvailable}
+									<svg class="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+									</svg>
+								{/if}
+							</span>
 						</button>
 					{/each}
 				</div>

@@ -28,7 +28,8 @@
 		indicatorsByTheme,
 		allAvailableYears,
 		getAvailableYearsForIndicator,
-		initializeMetadata
+		initializeMetadata,
+		type IndicatorMetadata
 	} from '../stores/metadata';
 	import { showVariableSelector } from '../stores/interactiveSteps';
 	import { US_STATES, getStateNameByCode } from '../constants/states';
@@ -222,6 +223,52 @@
 	function getGeoDisplayName(geoLevel: string | null): string {
 		if (!geoLevel) return 'Select geography';
 		return $geographies[geoLevel]?.name || geoLevel;
+	}
+
+	/**
+	 * Checks if a variable is available for the selected years
+	 */
+	function isVariableAvailable(indicator: IndicatorMetadata): boolean {
+		if ($currentYears.length === 0) return true; // No years selected, show all
+		
+		if ($currentYears.length === 1) {
+			// Strict validation for single year - must be available for that specific year
+			return indicator.available_years.includes($currentYears[0]);
+		}
+		
+		// For multiple years, allow if available for ANY year
+		return $currentYears.some(year => indicator.available_years.includes(year));
+	}
+
+	/**
+	 * Gets availability message for a variable
+	 */
+	function getAvailabilityMessage(indicator: IndicatorMetadata): string {
+		if ($currentYears.length === 1 && !indicator.available_years.includes($currentYears[0])) {
+			return `Not available for ${$currentYears[0]}`;
+		}
+		return '';
+	}
+
+	/**
+	 * Handles indicator toggle with availability check
+	 */
+	function handleIndicatorToggle(indicator: IndicatorMetadata): void {
+		// Only allow toggle if variable is available
+		if (isVariableAvailable(indicator)) {
+			toggleIndicator(indicator.id);
+		}
+	}
+
+	/**
+	 * Handles label click for unavailable indicators
+	 */
+	function handleLabelClick(event: MouseEvent, indicator: IndicatorMetadata): void {
+		if (!isVariableAvailable(indicator)) {
+			// Prevent click propagation for unavailable indicators
+			event.preventDefault();
+			event.stopPropagation();
+		}
 	}
 
 	/**
@@ -521,8 +568,17 @@
 					/>
 				</div>
 
+
+			</div>
+
+			<!-- Modal Content -->
+			<div 
+				class="flex-1 overflow-y-auto p-6 bg-gradient-to-b from-white/50 to-teal-50/20" 
+				on:mouseenter={() => isVariableAreaHovered = true}
+				on:mouseleave={() => isVariableAreaHovered = false}
+			>
 				<!-- Search Bar -->
-				<div class="mt-6 relative">
+				<div class="mb-6 relative">
 					<div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
 						<svg class="h-5 w-5 text-teal-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -546,14 +602,6 @@
 					{/if}
 				</div>
 
-			</div>
-
-			<!-- Modal Content -->
-			<div 
-				class="flex-1 overflow-y-auto p-6 bg-gradient-to-b from-white/50 to-teal-50/20" 
-				on:mouseenter={() => isVariableAreaHovered = true}
-				on:mouseleave={() => isVariableAreaHovered = false}
-			>
 				{#if Object.keys(filteredIndicatorsByTheme).length > 0}
 					<!-- Theme Controls -->
 					{#if !searchTerm && Object.keys($indicatorsByTheme).length > 1}
@@ -617,15 +665,23 @@
 									<div class="divide-y divide-teal-100/50">
 										{#each indicators as indicator}
 											{@const isSelected = $currentSelectedIndicators.includes(indicator.id)}
-											<label class="flex items-start gap-4 p-5 hover:bg-gradient-to-r hover:from-teal-50/40 hover:to-emerald-50/40 cursor-pointer transition-all duration-300 group">
+											{@const isAvailable = isVariableAvailable(indicator)}
+											{@const availabilityMessage = getAvailabilityMessage(indicator)}
+											<label 
+												class="flex items-start gap-4 p-5 transition-all duration-300 group {isAvailable ? 'hover:bg-gradient-to-r hover:from-teal-50/40 hover:to-emerald-50/40 cursor-pointer' : 'cursor-not-allowed opacity-50'}"
+												title={availabilityMessage || undefined}
+												on:click={(event) => handleLabelClick(event, indicator)}
+											>
 												<div class="relative mt-1">
 													<input
 														type="checkbox"
 														checked={isSelected}
-														on:change={() => toggleIndicator(indicator.id)}
-														class="h-5 w-5 text-teal-600 border-2 border-teal-300 rounded-lg focus:ring-teal-500 focus:ring-2 transition-all duration-300 cursor-pointer"
+														disabled={!isAvailable}
+														on:change={() => handleIndicatorToggle(indicator)}
+														on:click|stopPropagation
+														class="h-5 w-5 text-teal-600 border-2 border-teal-300 rounded-lg focus:ring-teal-500 focus:ring-2 transition-all duration-300 {isAvailable ? 'cursor-pointer' : 'cursor-not-allowed'}"
 													/>
-													{#if isSelected}
+													{#if isSelected && isAvailable}
 														<div class="absolute inset-0 flex items-center justify-center pointer-events-none">
 															<svg class="h-3 w-3 text-white" fill="currentColor" viewBox="0 0 20 20">
 																<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
@@ -635,10 +691,10 @@
 												</div>
 												<div class="flex-1 min-w-0">
 													<div class="flex items-center gap-3 mb-2">
-														<span class="font-semibold text-teal-900 text-sm group-hover:text-teal-800 transition-colors">
+														<span class="font-semibold text-sm transition-colors {isAvailable ? 'text-teal-900 group-hover:text-teal-800' : 'text-teal-500'}">
 															{indicator.name}
 														</span>
-														{#if isSelected}
+														{#if isSelected && isAvailable}
 															<div class="flex items-center gap-1 bg-gradient-to-r from-teal-100 to-teal-200 text-teal-800 px-2 py-1 rounded-full border border-teal-300/50">
 																<svg class="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
 																	<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
@@ -647,28 +703,35 @@
 															</div>
 														{/if}
 													</div>
-													<p class="text-sm text-teal-700 mb-3 leading-relaxed">
+													<p class="text-sm mb-3 leading-relaxed {isAvailable ? 'text-teal-700' : 'text-teal-400'}">
 														{indicator.description}
 													</p>
-													<div class="flex items-center gap-3 text-xs">
-														<div class="flex items-center gap-1 text-teal-600 bg-white/60 px-2 py-1 rounded-lg border border-teal-200/40">
-															<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-																<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
-															</svg>
-															<span class="font-medium">ID: {indicator.id}</span>
+													<div class="flex flex-col gap-2">
+														<div class="flex items-center gap-3 text-xs">
+															<div class="flex items-center gap-1 bg-white/60 px-2 py-1 rounded-lg border {isAvailable ? 'text-teal-600 border-teal-200/40' : 'text-teal-400 border-teal-200/20'}">
+																<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+																	<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
+																</svg>
+																<span class="font-medium">ID: {indicator.id}</span>
+															</div>
+															<div class="flex items-center gap-1 bg-white/60 px-2 py-1 rounded-lg border {isAvailable ? 'text-teal-600 border-teal-200/40' : 'text-teal-400 border-teal-200/20'}">
+																<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+																	<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+																</svg>
+																<span class="font-medium">{indicator.available_years.length} years</span>
+															</div>
+															<div class="flex items-center gap-1 bg-white/60 px-2 py-1 rounded-lg border {isAvailable ? 'text-teal-600 border-teal-200/40' : 'text-teal-400 border-teal-200/20'}">
+																<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+																	<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
+																</svg>
+																<span class="font-medium">{indicator.available_years[0]}-{indicator.available_years[indicator.available_years.length - 1]}</span>
+															</div>
 														</div>
-														<div class="flex items-center gap-1 text-teal-600 bg-white/60 px-2 py-1 rounded-lg border border-teal-200/40">
-															<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-																<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-															</svg>
-															<span class="font-medium">{indicator.available_years.length} years</span>
-														</div>
-														<div class="flex items-center gap-1 text-teal-600 bg-white/60 px-2 py-1 rounded-lg border border-teal-200/40">
-															<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-																<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
-															</svg>
-															<span class="font-medium">{indicator.available_years[0]}-{indicator.available_years[indicator.available_years.length - 1]}</span>
-														</div>
+														{#if availabilityMessage}
+															<div class="text-xs text-red-600 font-medium">
+																{availabilityMessage}
+															</div>
+														{/if}
 													</div>
 												</div>
 											</label>

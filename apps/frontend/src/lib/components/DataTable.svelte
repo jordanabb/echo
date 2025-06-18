@@ -357,10 +357,20 @@
 		
 		if (isStickyColumn(columnName)) {
 			let leftOffset = 'left-0';
-			if (columnName === 'state_fips') leftOffset = 'left-48';
-			else if (columnName === 'year') leftOffset = 'left-96';
+			let minWidth = '';
 			
-			return `${baseClasses} sticky ${leftOffset} bg-white border-r border-gray-200 z-10`;
+			if (columnName === 'geo_name') {
+				leftOffset = 'left-0';
+				minWidth = 'min-w-[200px] w-[200px]';
+			} else if (columnName === 'state_fips') {
+				leftOffset = 'left-[200px]';
+				minWidth = 'min-w-[120px] w-[120px]';
+			} else if (columnName === 'year') {
+				leftOffset = 'left-[320px]';
+				minWidth = 'min-w-[80px] w-[80px]';
+			}
+			
+			return `${baseClasses} ${minWidth} sticky ${leftOffset} bg-white border-r border-gray-200 z-10`;
 		}
 		
 		return baseClasses;
@@ -372,10 +382,20 @@
 		
 		if (isStickyColumn(columnName)) {
 			let leftOffset = 'left-0';
-			if (columnName === 'state_fips') leftOffset = 'left-48';
-			else if (columnName === 'year') leftOffset = 'left-96';
+			let minWidth = '';
 			
-			return `${baseClasses} sticky ${leftOffset} bg-gray-50 border-r border-gray-200 z-20`;
+			if (columnName === 'geo_name') {
+				leftOffset = 'left-0';
+				minWidth = 'min-w-[200px] w-[200px]';
+			} else if (columnName === 'state_fips') {
+				leftOffset = 'left-[200px]';
+				minWidth = 'min-w-[120px] w-[120px]';
+			} else if (columnName === 'year') {
+				leftOffset = 'left-[320px]';
+				minWidth = 'min-w-[80px] w-[80px]';
+			}
+			
+			return `${baseClasses} ${minWidth} sticky ${leftOffset} bg-gray-50 border-r border-gray-200 z-20`;
 		}
 		
 		return `${baseClasses} bg-gray-50`;

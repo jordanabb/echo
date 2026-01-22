@@ -3,6 +3,21 @@
 ## Overview
 This document provides everything your IT team needs to deploy the ECHO Data Dashboard to AWS.
 
+## 🎯 Streamlined Workflow
+
+**Good News:** You won't need to run ETL scripts or load data!
+
+The developer will provide you with a **production-ready database export** that you simply restore to AWS RDS. This approach:
+- ✅ No Python/ETL environment needed
+- ✅ Faster deployment
+- ✅ Pre-verified data quality
+- ✅ Simpler infrastructure
+
+**What you'll receive:**
+- SQL database dump file (ready to restore)
+- This documentation
+- Dockerfiles for frontend/backend
+
 ## Repository Access
 **GitHub Repository:** https://github.com/jordanabb/echo
 **Deployment Branch:** `feat/aws-deployment-prep`
@@ -75,22 +90,56 @@ After deployment, the IT team should provide:
 
 ## Database Initialization
 
-After RDS is set up, the database needs to be initialized with:
+### Streamlined Approach (Recommended)
 
-### 1. Schema Setup
-Located at: [packages/etl/schema.sql](packages/etl/schema.sql)
+The developer will provide you with a complete database export file:
 
-The IT team should run:
-```bash
-psql -h [RDS-ENDPOINT] -U postgres -d echo_data -f packages/etl/schema.sql
-```
+**File you'll receive:** `echo_production_YYYYMMDD_HHMMSS.sql.gz` (or .sql)
 
-### 2. Data Loading
-You will need to run the ETL scripts to load data:
-- `packages/etl/load_data_to_db.py`
-- `packages/etl/load_geometry_data.py`
+**Steps to restore:**
 
-**Note:** You'll need the database connection info from IT before you can load data.
+1. **Create RDS PostgreSQL instance** (see AWS Architecture section)
+
+2. **Enable PostGIS extension:**
+   ```sql
+   CREATE EXTENSION IF NOT EXISTS postgis;
+   CREATE EXTENSION IF NOT EXISTS postgis_topology;
+   ```
+
+3. **Create database:**
+   ```sql
+   CREATE DATABASE echo_data;
+   ```
+
+4. **Restore the database dump:**
+   ```bash
+   # If using compressed file
+   gunzip -c echo_production_YYYYMMDD_HHMMSS.sql.gz | \
+   psql -h [RDS-ENDPOINT] -U postgres -d echo_data
+
+   # Or if using uncompressed
+   psql -h [RDS-ENDPOINT] -U postgres -d echo_data \
+        -f echo_production_YYYYMMDD_HHMMSS.sql
+   ```
+
+5. **Verify restore:**
+   ```sql
+   SELECT COUNT(*) FROM geographies;
+   SELECT COUNT(*) FROM results_data;
+   ```
+
+**That's it!** No ETL scripts to run. The database dump includes:
+- Complete schema with spatial indices
+- All geographic boundaries
+- All indicator data
+- Proper constraints and relationships
+
+### Alternative: Manual Schema + ETL (Not Recommended)
+
+If for some reason you need to set up from scratch:
+- Schema: [packages/etl/schema.sql](packages/etl/schema.sql)
+- ETL scripts in `packages/etl/`
+- Contact developer for assistance
 
 ## Environment Variables the IT Team Must Configure
 

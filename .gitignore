@@ -15,12 +15,32 @@ dist/
 npm-debug.log*
 
 
-# Environment files
+# Environment files (but keep .example files for templates)
 .env
-.env.*
-*.env
+.env.local
+.env.production
+.env.development
+.env.test
+!.env.example
+!.env*.example
 
 
 # IDE / Editor specific
 .vscode/
 .idea/
+
+# Docker
+*.log
+
+# SvelteKit
+.svelte-kit/
+build/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log

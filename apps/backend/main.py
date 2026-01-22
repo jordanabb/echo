@@ -2,14 +2,21 @@
 
 # --- Standard Library Imports ---
 import json
+import os
+from typing import List
 
 # --- Third-Party Imports ---
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 import pandas as pd
 import geopandas as gpd
 import mapclassify
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # --- Local Application Imports ---
 import models
@@ -66,6 +73,25 @@ app = FastAPI(
 )
 
 # ===================================================================
+#   CORS Configuration
+# ===================================================================
+
+# Get allowed origins from environment variable, with fallback for development
+cors_origins_str = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:3000,http://localhost:5175,http://localhost:8000"
+)
+allowed_origins: List[str] = [origin.strip() for origin in cors_origins_str.split(",")]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ===================================================================
 #   Database Dependency
 # ===================================================================
 
@@ -82,6 +108,26 @@ def get_db():
 # ===================================================================
 #   API Endpoints
 # ===================================================================
+
+@app.get("/health")
+def health_check(db: Session = Depends(get_db)):
+    """
+    Health check endpoint for load balancers and monitoring.
+    Returns 200 if the service and database are healthy.
+    """
+    try:
+        # Test database connection
+        db.execute(text("SELECT 1"))
+        return {
+            "status": "healthy",
+            "service": "echo-api",
+            "database": "connected"
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Service unhealthy: {str(e)}"
+        )
 
 @app.get("/api/metadata", response_model=schemas.MetadataResponse)
 def get_metadata(db: Session = Depends(get_db)):

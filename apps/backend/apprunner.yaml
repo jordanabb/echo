@@ -12,8 +12,8 @@ run:
     port: 8000
   env:
     - name: DATABASE_URL
-      value: "postgresql://root:EchoRDS2026@dummynewamerica2.colozmht2nd8.us-east-1.rds.amazonaws.com:5432/newamerica?sslmode=require"
+      value: "SET_VIA_ENVIRONMENT"
     - name: CORS_ORIGINS
-      value: "https://dxssqmjdh6g8q.cloudfront.net"
+      value: "SET_VIA_ENVIRONMENT"
     - name: ENVIRONMENT
       value: "production"

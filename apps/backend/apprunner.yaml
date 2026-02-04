@@ -1,0 +1,19 @@
+version: 1.0
+runtime: python311
+build:
+  commands:
+    pre-build:
+      - yum install -y gcc gcc-c++ postgresql-devel geos-devel proj-devel gdal-devel gdal-libs
+    build:
+      - pip install -r requirements.txt
+run:
+  command: uvicorn main:app --host 0.0.0.0 --port 8000
+  network:
+    port: 8000
+  env:
+    - name: DATABASE_URL
+      value: "postgresql://root:EchoRDS2026@dummynewamerica2.colozmht2nd8.us-east-1.rds.amazonaws.com:5432/newamerica?sslmode=require"
+    - name: CORS_ORIGINS
+      value: "https://dxssqmjdh6g8q.cloudfront.net"
+    - name: ENVIRONMENT
+      value: "production"

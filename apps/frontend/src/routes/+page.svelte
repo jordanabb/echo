@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { AnalysisPane, Button, Card, DataTable, Map, UnifiedContextBar } from '$lib/components';
+	import { AnalysisPane, Button, Card, DataTable, UnifiedContextBar } from '$lib/components';
 	import { 
 		theme, 
 		isLoading
@@ -102,7 +102,17 @@
 	<!-- Sophisticated Background Elements -->
 	<div class="absolute inset-0 bg-grid-pattern opacity-5"></div>
 	<div class="absolute inset-0 bg-gradient-to-t from-teal-100/30 via-transparent to-transparent"></div>
-	
+
+	<!-- New America Logo - Upper Left -->
+	<a
+		href="https://www.newamerica.org"
+		target="_blank"
+		rel="noopener noreferrer"
+		class="absolute top-6 left-6 z-20 hover:opacity-80 transition-opacity duration-300"
+	>
+		<img src="/na-logo.png" alt="New America" class="h-12 w-auto" />
+	</a>
+
 	<!-- Floating Orbs for Visual Interest -->
 	<div class="absolute top-20 left-20 w-32 h-32 bg-teal-200/20 rounded-full blur-xl animate-pulse"></div>
 	<div class="absolute bottom-40 right-32 w-48 h-48 bg-emerald-200/20 rounded-full blur-2xl animate-pulse delay-1000"></div>
@@ -114,23 +124,27 @@
 			<!-- Dramatic Main Title -->
 			<h1 class="text-7xl md:text-9xl font-display font-black mb-8 tracking-tight leading-none">
 				<span class="bg-gradient-to-r from-teal-800 via-teal-700 to-teal-800 bg-clip-text text-transparent drop-shadow-sm">
-					ECHO 2.0
+					ECHO
 				</span>
 			</h1>
 			
 			<!-- Subtitle -->
-			<p class="text-2xl md:text-3xl text-teal-700 font-light mb-6 max-w-4xl mx-auto leading-relaxed">
+			<p class="text-2xl md:text-3xl text-teal-700 font-light mb-4 max-w-4xl mx-auto leading-relaxed">
 				Education, Community, and Housing Open Data Dashboard
+			</p>
+			<p class="text-lg md:text-xl text-teal-600 italic mb-6">
+				Updated and Re-Released March 2026
 			</p>
 			
 			<!-- New America Attribution -->
-			<a 
-				href="https://www.newamerica.org/prek-12-education/education-funding-equity/about/" 
-				target="_blank" 
+			<a
+				href="https://www.newamerica.org/prek-12-education/education-funding-equity/about/"
+				target="_blank"
 				rel="noopener noreferrer"
-				class="inline-block text-lg md:text-xl text-teal-600 font-medium mb-10 hover:text-teal-700 transition-all duration-300 transform hover:scale-105 no-underline"
+				class="inline-flex items-center gap-3 text-lg md:text-xl text-teal-600 font-medium mb-10 hover:text-teal-700 transition-all duration-300 transform hover:scale-105 no-underline"
 			>
-				A product of the Education Funding Equity Initiative
+				<img src="/na-logo.png" alt="New America" class="h-8 w-auto" />
+				A Product of New America's Education Funding Equity Initiative
 			</a>
 			
 			<!-- Network Graphic -->
@@ -147,9 +161,9 @@
 
 	<!-- Elegant Scroll Indicator -->
 	<div class="absolute bottom-16 left-1/2 transform -translate-x-1/2 animate-bounce">
-		<div class="w-8 h-12 border-2 border-teal-600/60 rounded-full flex justify-center backdrop-blur-sm">
-			<div class="w-1.5 h-4 bg-teal-600/80 rounded-full mt-2 animate-pulse"></div>
-		</div>
+		<svg class="w-8 h-8 text-teal-600/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+			<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+		</svg>
 	</div>
 </div>
 
@@ -210,7 +224,7 @@
 				</h2>
 				<div class="w-32 h-1.5 bg-premium-teal mx-auto mb-8 rounded-full shadow-teal-glow"></div>
 				<p class="text-2xl text-slate-600 max-w-4xl mx-auto font-light leading-relaxed">
-					Follow these simple steps to explore and analyze the data
+					To explore and analyze the data:
 				</p>
 			</div>
 			
@@ -240,9 +254,9 @@
 								{/if}
 							</div>
 						</div>
-						<h3 class="text-3xl font-bold text-teal-900 mb-6">Select Geography</h3>
+						<h3 class="text-3xl font-bold text-teal-900 mb-6">Select Geographic Unit</h3>
 						<p class="text-teal-700 leading-relaxed text-lg mb-8 font-medium">
-							Choose from school districts, counties, legislative districts, or census tracts
+							Choose to view data by school districts, counties, legislative districts, or census tracts
 						</p>
 						
 						<!-- Interactive Geographic Selection -->
@@ -252,7 +266,7 @@
 								value={$currentGeoLevel || ''}
 								on:change={handleGeoLevelChange}
 							>
-								<option value="">Select geography...</option>
+								<option value="">Select geographic unit...</option>
 								{#each Object.keys($geographies) as level}
 									<option value={level}>{$geographies[level]?.name || level}</option>
 								{/each}
@@ -316,7 +330,7 @@
 						</div>
 						<h3 class="text-3xl font-bold text-emerald-900 mb-6">Select Variables</h3>
 						<p class="text-emerald-700 leading-relaxed text-lg mb-8 font-medium">
-							Choose the data variables you want to explore and analyze
+							Choose the data items you want to explore
 						</p>
 						
 						<!-- Variable Selection Button -->
@@ -367,7 +381,7 @@
 						</div>
 						<h3 class="text-3xl font-bold text-slate-900 mb-6">Select View</h3>
 						<p class="text-slate-700 leading-relaxed text-lg mb-8 font-medium">
-							Choose how you want to visualize and analyze your data
+							Choose how you want to display and analyze your data
 						</p>
 						
 						<!-- View Selection Buttons -->
@@ -385,7 +399,7 @@
 									</div>
 									<div class="flex-1">
 										<div class="font-semibold text-slate-900">Map View</div>
-										<div class="text-sm text-slate-600">Interactive choropleth maps</div>
+										<div class="text-sm text-slate-600">Interactive, color-coded maps</div>
 									</div>
 									{#if $selectedView === 'map'}
 										<svg class="w-5 h-5 text-teal-600 ml-auto" fill="currentColor" viewBox="0 0 20 20">
@@ -457,10 +471,10 @@
 	<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 border-b border-slate-200">
 		<div class="text-center mb-12">
 			<h2 class="text-4xl font-display font-bold text-slate-900 mb-4">
-				Streamlined Data Interface
+				Data Selector
 			</h2>
 			<p class="text-xl text-slate-600 max-w-2xl mx-auto">
-				One unified context bar controls all data selections across maps, tables, and charts
+				Use the menu bar above to select geographic units and data items to view in map, table, or chart form.
 			</p>
 			
 			<!-- Current Selection Description -->
@@ -598,34 +612,14 @@
 		</div>
 	</div>
 
-	<!-- Interactive Map Visualization Section -->
-	<div id="map-section" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 border-b border-slate-200">
-		<div class="text-center mb-16">
-			<h2 class="text-4xl font-display font-bold text-slate-900 mb-4">
-				Interactive Map Visualization
-			</h2>
-			<p class="text-xl text-slate-600 max-w-2xl mx-auto">
-				Explore data through dynamic choropleth maps that update seamlessly based on your filter selections
-			</p>
-		</div>
-
-		<!-- Map Container -->
-		<div class="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-			<div class="h-[600px] w-full">
-				<Map />
-			</div>
-		</div>
-
-	</div>
-
-	<!-- Data Analysis Suite Section -->
+	<!-- Data Views Section -->
 	<div id="analysis-section" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 border-b border-slate-200">
 		<div class="text-center mb-12">
 			<h2 class="text-4xl font-display font-bold text-slate-900 mb-4">
-				Intelligent Data Analysis Suite
+				Data Views
 			</h2>
 			<p class="text-xl text-slate-600 max-w-2xl mx-auto">
-				Seamlessly switch between comprehensive data tables and insightful visualizations with our tabbed analysis interface
+				Explore data through maps, tables, and charts
 			</p>
 		</div>
 
@@ -639,16 +633,21 @@
 	<!-- Footer -->
 	<footer class="bg-gradient-to-br from-slate-50 via-white to-teal-50 border-t border-slate-200 py-16">
 		<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-			<p class="text-slate-700 mb-6 text-lg">
-				Developed by <a 
-					href="https://www.newamerica.org/prek-12-education/education-funding-equity/about/" 
-					target="_blank" 
-					rel="noopener noreferrer"
-					class="text-teal-700 hover:text-teal-800 transition-colors duration-200 underline font-medium"
-				>
-					New America's Education Funding Equity Initiative
+			<div class="flex items-center justify-center gap-3 mb-6">
+				<a href="https://www.newamerica.org" target="_blank" rel="noopener noreferrer" class="hover:opacity-80 transition-opacity duration-200">
+					<img src="/na-logo.png" alt="New America" class="h-8 w-auto" />
 				</a>
-			</p>
+				<p class="text-slate-700 text-lg">
+					Developed by <a
+						href="https://www.newamerica.org/prek-12-education/education-funding-equity/about/"
+						target="_blank"
+						rel="noopener noreferrer"
+						class="text-teal-700 hover:text-teal-800 transition-colors duration-200 underline font-medium"
+					>
+						New America's Education Funding Equity Initiative
+					</a>
+				</p>
+			</div>
 			<div class="flex justify-center space-x-6">
 				<Button variant="ghost" size="sm">
 					Documentation

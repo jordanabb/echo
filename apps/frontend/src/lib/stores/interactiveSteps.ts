@@ -37,23 +37,10 @@ export const stepCompletion: Readable<{
 );
 
 // Function to navigate to the appropriate section based on selected view
-export function navigateToView(view: ViewType): void {
-	switch (view) {
-		case 'map':
-			const mapSection = document.getElementById('map-section');
-			if (mapSection) {
-				mapSection.scrollIntoView({ behavior: 'smooth' });
-			}
-			break;
-		case 'table':
-		case 'chart':
-			const analysisSection = document.getElementById('analysis-section');
-			if (analysisSection) {
-				analysisSection.scrollIntoView({ behavior: 'smooth' });
-			}
-			// Set the appropriate tab in AnalysisPane
-			// This will be handled by the AnalysisPane component
-			break;
+export function navigateToView(): void {
+	const analysisSection = document.getElementById('analysis-section');
+	if (analysisSection) {
+		analysisSection.scrollIntoView({ behavior: 'smooth' });
 	}
 }
 
@@ -63,6 +50,6 @@ export function selectView(view: ViewType): void {
 	
 	// Auto-navigate if all steps are completed
 	setTimeout(() => {
-		navigateToView(view);
+		navigateToView();
 	}, 300); // Small delay for smooth UX
 }

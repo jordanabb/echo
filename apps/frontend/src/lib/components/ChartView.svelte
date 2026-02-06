@@ -15,6 +15,7 @@
 	import { crossfade } from 'svelte/transition';
 	import { quintOut } from 'svelte/easing';
 	import { formatValueByType } from '$lib/utils';
+	import { geographies } from '$lib/stores/metadata';
 	import { showVariableSelector } from '$lib/stores/interactiveSteps';
 	import { getStateNameByCode } from '$lib/constants/states';
 	import Card from './Card.svelte';
@@ -58,28 +59,28 @@
 	const chartOptions: ChartOption[] = [
 		{
 			id: 'bar',
-			title: 'Compare Values Across Geographies',
-			description: 'Perfect for comparing indicator values between different locations',
+			title: 'Compare Values',
+			description: 'Compare data values across different locations',
 			icon: 'M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z',
 			useCase: 'Bar Chart'
 		},
 		{
 			id: 'scatter',
-			title: 'Explore Relationship Between Variables',
-			description: 'Discover correlations and patterns between two indicators',
+			title: 'See Relationships Between Variables',
+			description: 'Discover correlations and connections between two variables',
 			icon: 'M3 21V3h18M6 16a1 1 0 100-2 1 1 0 000 2zM10 12a1 1 0 100-2 1 1 0 000 2zM14 8a1 1 0 100-2 1 1 0 000 2zM18 4a1 1 0 100-2 1 1 0 000 2z',
 			useCase: 'Scatter Plot'
 		},
 		{
 			id: 'line',
 			title: 'Track Changes Over Time',
-			description: 'Visualize trends and changes in indicators across years',
+			description: 'See data trends and changes over multiple years',
 			icon: 'M3 17l6-6 4 4 8-8',
 			useCase: 'Line Chart'
 		},
 		{
 			id: 'pie',
-			title: 'Show Composition Breakdowns',
+			title: 'Show Proportions',
 			description: 'Display revenue sources, student demographics, or community demographics as parts of a whole',
 			icon: 'M21.21 15.89A10 10 0 118 2.83M22 12A10 10 0 0012 2v10z',
 			useCase: 'Pie Chart'
@@ -186,8 +187,8 @@
 			}
 		}
 		
-		// Fetch available geographic units for line and bar charts
-		if ((chartType === 'line' || chartType === 'bar') && $currentGeoLevel) {
+		// Fetch available geographic units for line, bar, and pie charts
+		if ((chartType === 'line' || chartType === 'bar' || chartType === 'pie') && ($currentGeoLevel || chartType === 'pie')) {
 			await fetchAvailableGeoUnits();
 		}
 		
@@ -257,7 +258,8 @@
 
 	// Function to fetch available geographic units for the current geo level
 	async function fetchAvailableGeoUnits() {
-		if (!$currentGeoLevel) return;
+		const geoLevel = $currentGeoLevel || (selectedChartType === 'pie' ? 'county' : null);
+		if (!geoLevel) return;
 		
 		try {
 			// Use the latest year from available years or current years
@@ -266,7 +268,7 @@
 				: ($currentYears.length > 0 ? $currentYears[$currentYears.length - 1] : 2022);
 			
 			const params = new URLSearchParams({
-				geo_level: $currentGeoLevel,
+				geo_level: geoLevel,
 				year: yearToUse.toString()
 			});
 			
@@ -354,7 +356,17 @@
 			if (allGeoIds.size === 0) {
 				throw new Error('No geographic areas found for the selected filters');
 			}
-			
+
+			// For pie charts, filter to selected geo units if any are selected
+			if (selectedChartType === 'pie' && selectedGeoUnits.length > 0) {
+				const filteredIds = new Set(Array.from(allGeoIds).filter(id => selectedGeoUnits.includes(id)));
+				allGeoIds.clear();
+				filteredIds.forEach(id => allGeoIds.add(id));
+				if (allGeoIds.size === 0) {
+					throw new Error('No data found for the selected geographic units');
+				}
+			}
+
 			// Determine which indicators to fetch
 			let indicatorIds: string[];
 			if (selectedChartType === 'pie' && selectedPieChartType) {
@@ -468,9 +480,9 @@
 					const geoMap = new Map();
 					filteredData.forEach(row => {
 						const geoName = row.geo_name || row.geo_id || 'Unknown';
-						const indicatorValue = row[yAxisVariable];
-						
-						if (indicatorValue !== null && indicatorValue !== undefined) {
+						const indicatorValue = parseFloat(row[yAxisVariable]);
+
+						if (!isNaN(indicatorValue)) {
 							// If multiple years, take the average or latest value
 							if (geoMap.has(geoName)) {
 								const existing = geoMap.get(geoName);
@@ -512,9 +524,9 @@
 						const geoId = row.geo_id;
 						const geoName = row.geo_name || geoId || 'Unknown';
 						const year = row.year;
-						const indicatorValue = row[yAxisVariable];
-						
-						if (year && indicatorValue !== null && indicatorValue !== undefined) {
+						const indicatorValue = parseFloat(row[yAxisVariable]);
+
+						if (year && !isNaN(indicatorValue)) {
 							if (!geoYearMap.has(geoId)) {
 								geoYearMap.set(geoId, {
 									geo_id: geoId,
@@ -656,8 +668,9 @@
 						let validDataCount = 0;
 						
 						filteredData.forEach(row => {
-							const value = row[indicator];
-							if (value !== null && value !== undefined && !isNaN(value) && value >= 0) {
+							const rawValue = row[indicator];
+							const value = parseFloat(rawValue);
+							if (!isNaN(value) && value >= 0) {
 								totalValue += value;
 								validDataCount++;
 							}
@@ -1044,7 +1057,7 @@
 				
 				if (thirdVariable && validScatterData.some(d => d.thirdValue !== null && d.thirdValue !== undefined)) {
 					if (thirdVariableMode === 'color') {
-						// Group by color variable value ranges
+						// Group by color variable values
 						const colorValues = validScatterData
 							.filter(d => d.thirdValue !== null && d.thirdValue !== undefined)
 							.map(d => d.thirdValue);
@@ -1425,7 +1438,7 @@
 			case 'bar':
 				return 'Configure your bar chart to compare values across different geographies or categories.';
 			case 'scatter':
-				return 'Set up your scatter plot to explore relationships between two different indicators.';
+				return 'Choose the elements of your scatter plot to explore relationships between variables.';
 			case 'line':
 				return 'Configure your line chart to track how indicators change over time.';
 			case 'pie':
@@ -1463,7 +1476,7 @@
 	$: if (browser && selectedChartType && $currentGeoLevel) {
 		updateAvailableOptions();
 		// Re-fetch available geographic units when geo level changes
-		if ((selectedChartType === 'line' || selectedChartType === 'bar') && $currentGeoLevel) {
+		if ((selectedChartType === 'line' || selectedChartType === 'bar' || selectedChartType === 'pie') && ($currentGeoLevel || selectedChartType === 'pie')) {
 			fetchAvailableGeoUnits();
 		}
 		if (isChartConfigValid()) {
@@ -1473,7 +1486,7 @@
 	
 	$: if (browser && selectedChartType && $currentGeoFilter !== undefined) {
 		// Re-fetch available geographic units when state filter changes
-		if ((selectedChartType === 'line' || selectedChartType === 'bar') && $currentGeoLevel) {
+		if ((selectedChartType === 'line' || selectedChartType === 'bar' || selectedChartType === 'pie') && ($currentGeoLevel || selectedChartType === 'pie')) {
 			fetchAvailableGeoUnits();
 		}
 		if (isChartConfigValid()) {
@@ -1669,7 +1682,7 @@
 						</svg>
 					</div>
 					<div>
-						<h3 class="text-xl font-bold text-teal-900">Chart Visualization</h3>
+						<h3 class="text-xl font-bold text-teal-900">Chart Selector</h3>
 						<p class="text-sm text-teal-700 mt-0.5">
 							{#if selectedChartType}
 								Creating a {chartOptions.find(opt => opt.id === selectedChartType)?.useCase.toLowerCase()}
@@ -1793,7 +1806,7 @@
 							<Card variant="outline">
 								<div class="p-4">
 									<h4 class="text-lg font-semibold text-gray-900 mb-3">
-										Chart Configuration
+										Chart Elements
 									</h4>
 									<p class="text-sm text-gray-600 mb-6">
 										{getChartInstructions(selectedChartType)}
@@ -1830,11 +1843,11 @@
 											</div>
 										{/if}
 
-										<!-- Geographic Unit Selection for Line Charts and Bar Charts - moved to top -->
-										{#if (selectedChartType === 'line' || selectedChartType === 'bar') && availableGeoUnits.length > 0}
+										<!-- Geographic Unit Selection for Line, Bar, and Pie Charts -->
+										{#if (selectedChartType === 'line' || selectedChartType === 'bar' || selectedChartType === 'pie') && availableGeoUnits.length > 0}
 											<div>
 												<label class="block text-sm font-medium text-gray-700 mb-2">
-													Geographic Units to Display
+													Geographic Units {selectedChartType === 'pie' ? '(Optional)' : 'to Display'}
 												</label>
 												<GeographicUnitSelector
 													availableUnits={availableGeoUnits}
@@ -1843,7 +1856,9 @@
 													placeholder="Search geographic units..."
 												/>
 												<p class="text-xs text-gray-500 mt-1">
-													{#if selectedChartType === 'line'}
+													{#if selectedChartType === 'pie'}
+														Leave empty to aggregate all {getGeoLevelDisplayName($currentGeoLevel) || 'counties'}, or select specific ones
+													{:else if selectedChartType === 'line'}
 														Select which {getGeoLevelDisplayName($currentGeoLevel)} to show as separate lines on the chart
 													{:else if selectedChartType === 'bar'}
 														Select which {getGeoLevelDisplayName($currentGeoLevel)} to include in the bar chart
@@ -1939,7 +1954,7 @@
 												</div>
 												<p class="text-xs text-gray-500 mb-3">
 													{#if thirdVariableMode === 'color'}
-														Points will be colored based on the selected variable's value ranges
+														Points will be colored based on the selected variable's values
 													{:else}
 														Point sizes will vary based on the selected variable's values
 													{/if}
@@ -1975,7 +1990,7 @@
 													<span class="ml-2 text-sm font-medium text-gray-700">Show Trend Line</span>
 												</label>
 												<p class="text-xs text-gray-500 mt-1">
-													Displays a linear regression line showing the overall relationship between variables
+													Displays a linear regression line showing the relationship between variables
 												</p>
 											</div>
 										{/if}
@@ -2121,7 +2136,7 @@
 										{#if selectedChartType === 'scatter' && availableGeoUnitsForSearch.length > 0}
 											<div class="mb-4">
 												<label class="block text-sm font-medium text-gray-700 mb-2">
-													Search Geographic Units
+													Search {$currentGeoLevel && $geographies[$currentGeoLevel] ? $geographies[$currentGeoLevel].name : 'Geographic Units'}
 												</label>
 												<div class="relative">
 													<input
@@ -2208,7 +2223,7 @@
 												{#if selectedChartType === 'scatter'}
 													<div class="text-xs text-gray-500">
 														<p class="mb-1">🖱️ <strong>Mouse wheel:</strong> Zoom in/out</p>
-														<p>🖱️ <strong>Click & drag:</strong> Pan around</p>
+														<p>🖱️ <strong>Click & drag:</strong> Move the chart window</p>
 													</div>
 												{:else}
 													<div></div>

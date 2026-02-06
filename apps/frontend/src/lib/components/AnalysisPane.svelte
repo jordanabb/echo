@@ -2,23 +2,30 @@
 	import { writable } from 'svelte/store';
 	import { slide } from 'svelte/transition';
 	import { quintOut } from 'svelte/easing';
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import DataTable from './DataTable.svelte';
 	import ChartView from './ChartView.svelte';
+	import Map from './Map.svelte';
 	import Card from './Card.svelte';
 	import { selectedView } from '../stores/interactiveSteps';
-	
+
 	// Tab definitions
-	type TabId = 'table' | 'chart';
-	
+	type TabId = 'map' | 'table' | 'chart';
+
 	interface Tab {
 		id: TabId;
 		label: string;
 		icon: string;
 		description: string;
 	}
-	
+
 	const tabs: Tab[] = [
+		{
+			id: 'map',
+			label: 'Map View',
+			icon: 'M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z M15 11a3 3 0 11-6 0 3 3 0 016 0z',
+			description: 'Interactive, color-coded maps'
+		},
 		{
 			id: 'table',
 			label: 'Data Table',
@@ -29,38 +36,46 @@
 			id: 'chart',
 			label: 'Chart View',
 			icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
-			description: 'Create visualizations and charts from your selected data'
+			description: 'Visualize your selected data with charts'
 		}
 	];
-	
+
 	// Active tab state
-	let activeTab: TabId = 'table';
-	
+	let activeTab: TabId = 'map';
+
+	// Map component reference for triggering resize
+	let mapComponent: Map;
+
 	// Watch for external view selection changes
-	$: if ($selectedView === 'table' || $selectedView === 'chart') {
+	$: if ($selectedView === 'map' || $selectedView === 'table' || $selectedView === 'chart') {
 		activeTab = $selectedView;
 	}
-	
+
+	// Trigger map resize when switching back to map tab
+	$: if (activeTab === 'map' && mapComponent) {
+		tick().then(() => mapComponent?.triggerResize());
+	}
+
 	// Function to switch tabs
 	function switchTab(tabId: TabId) {
 		activeTab = tabId;
 	}
-	
+
 	// Function to get tab button classes
 	function getTabButtonClasses(tabId: TabId): string {
 		const baseClasses = 'flex items-center space-x-3 px-5 py-3 text-sm font-semibold rounded-xl transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2';
-		
+
 		if (activeTab === tabId) {
 			return `${baseClasses} bg-gradient-to-r from-teal-600 to-teal-700 text-white shadow-luxury hover:shadow-floating border border-teal-800/20`;
 		} else {
 			return `${baseClasses} text-teal-700 hover:text-teal-900 bg-white/60 backdrop-blur-sm border border-teal-200/60 hover:bg-white hover:shadow-elegant`;
 		}
 	}
-	
+
 	// Function to get tab indicator classes
 	function getTabIndicatorClasses(tabId: TabId): string {
 		const baseClasses = 'absolute bottom-0 left-0 h-0.5 bg-blue-600 transition-all duration-300 ease-out';
-		
+
 		if (activeTab === tabId) {
 			return `${baseClasses} w-full opacity-100`;
 		} else {
@@ -83,12 +98,12 @@
 					<div>
 						<h2 class="text-2xl font-bold text-teal-900">Data Analysis</h2>
 						<p class="text-sm text-teal-700 mt-0.5">
-							Explore your data through tables and visualizations
+							Choose a data view:
 						</p>
 					</div>
 				</div>
 			</div>
-			
+
 			<!-- Tab Buttons -->
 			<div class="flex space-x-2">
 				{#each tabs as tab}
@@ -105,7 +120,7 @@
 							</div>
 							<span>{tab.label}</span>
 						</div>
-						
+
 						<!-- Active indicator -->
 						{#if activeTab === tab.id}
 							<div class="ml-2 w-2 h-2 bg-teal-600 rounded-full animate-pulse"></div>
@@ -115,12 +130,19 @@
 			</div>
 		</div>
 	</div>
-	
+
 	<!-- Tab Content -->
 	<div class="relative">
+		<!-- Map View (always mounted, toggled via CSS to preserve MapboxGL state) -->
+		<div class="w-full" style="display: {activeTab === 'map' ? 'block' : 'none'}">
+			<div class="h-[600px] w-full">
+				<Map bind:this={mapComponent} />
+			</div>
+		</div>
+
 		<!-- Table View -->
 		{#if activeTab === 'table'}
-			<div 
+			<div
 				class="w-full"
 				in:slide={{ duration: 300, easing: quintOut }}
 				out:slide={{ duration: 200, easing: quintOut }}
@@ -130,10 +152,10 @@
 				</div>
 			</div>
 		{/if}
-		
+
 		<!-- Chart View -->
 		{#if activeTab === 'chart'}
-			<div 
+			<div
 				class="w-full"
 				in:slide={{ duration: 300, easing: quintOut }}
 				out:slide={{ duration: 200, easing: quintOut }}
@@ -144,7 +166,7 @@
 			</div>
 		{/if}
 	</div>
-	
+
 	<!-- Tab Content Info Bar -->
 	<div class="bg-gradient-to-r from-white via-teal-50/20 to-white border-t border-teal-200/40 px-6 py-4 rounded-b-2xl">
 		<div class="flex items-center justify-between">
@@ -158,10 +180,10 @@
 					{tabs.find(tab => tab.id === activeTab)?.description}
 				</span>
 			</div>
-			
+
 			<!-- Quick Switch Buttons -->
 			<div class="flex items-center space-x-3">
-				<span class="text-xs font-medium text-teal-600">Quick switch:</span>
+				<span class="text-xs font-medium text-teal-600">Switch to:</span>
 				{#each tabs as tab}
 					{#if tab.id !== activeTab}
 						<button
@@ -182,7 +204,7 @@
 	.tab-content {
 		min-height: 400px;
 	}
-	
+
 	/* Ensure smooth tab switching */
 	:global(.tab-transition) {
 		transition: all 0.3s ease-out;

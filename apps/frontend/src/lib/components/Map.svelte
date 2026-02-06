@@ -31,6 +31,11 @@
 	// Map instance and container
 	let mapContainer: HTMLDivElement;
 	let map: any;
+
+	// Expose resize method for parent components (e.g., when used in tabs)
+	export function triggerResize() {
+		if (map) map.resize();
+	}
 	
 	// Component state
 	let isLoading = false;

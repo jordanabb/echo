@@ -259,7 +259,7 @@
 					on:change={handleGeoLevelChange}
 					disabled={$metadataLoading}
 				>
-					<option value="">Select geography...</option>
+					<option value="">Select geographic unit...</option>
 					{#each geographyLevels as level}
 						<option value={level}>{$geographies[level]?.name || level}</option>
 					{/each}

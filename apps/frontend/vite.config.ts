@@ -9,8 +9,9 @@ export default defineConfig({
 		port: 5175,
 		proxy: {
 			'/api': {
-				target: 'http://localhost:8000',
-				changeOrigin: true
+				target: 'https://6uzqayjzfw.us-east-1.awsapprunner.com',
+				changeOrigin: true,
+				secure: true
 			}
 		}
 	},

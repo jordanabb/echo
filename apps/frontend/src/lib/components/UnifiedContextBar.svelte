@@ -221,7 +221,7 @@
 	 * Get geography display name
 	 */
 	function getGeoDisplayName(geoLevel: string | null): string {
-		if (!geoLevel) return 'Select geography';
+		if (!geoLevel) return 'Select geographic unit';
 		return $geographies[geoLevel]?.name || geoLevel;
 	}
 
@@ -322,7 +322,7 @@
 						value={$currentGeoLevel || ''}
 						on:change={handleGeoLevelChange}
 					>
-						<option value="" class="text-neutral-500">Select geography...</option>
+						<option value="" class="text-neutral-500">Select geographic unit...</option>
 						{#each geographyLevels as level}
 							<option value={level} class="text-teal-800">{$geographies[level]?.name || level}</option>
 						{/each}

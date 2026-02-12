@@ -36,6 +36,7 @@
 
 	// Component state
 	let showAdvanced = false;
+	let showMobileFilters = false;
 	let searchTerm = '';
 	let expandedThemes: Set<string> = new Set();
 	let modalElement: HTMLDivElement;
@@ -305,10 +306,139 @@
 <!-- Unified Context Bar -->
 <div class="bg-gradient-to-r from-white via-teal-50/30 to-white border-b border-teal-200/50 shadow-luxury backdrop-blur-sm sticky top-0 z-40">
 	<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-		<!-- Main Context Bar -->
-		<div class="flex items-center justify-between py-4">
-			<!-- Left: Core Selections -->
-			<div class="flex items-center space-x-6">
+
+		<!-- Mobile Context Bar -->
+		<div class="lg:hidden">
+			<!-- Collapsed Summary Row -->
+			<div class="flex items-center justify-between py-3">
+				<div class="flex-1 min-w-0 mr-3">
+					<div class="flex items-center space-x-2">
+						<div class="flex items-center justify-center w-7 h-7 rounded-lg bg-gradient-to-br from-teal-100 to-teal-200 text-teal-700 flex-shrink-0">
+							<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/>
+							</svg>
+						</div>
+						<div class="min-w-0 flex-1">
+							<p class="text-sm font-semibold text-teal-800 truncate">
+								{#if $currentGeoLevel}
+									{$geographies[$currentGeoLevel]?.name || $currentGeoLevel}
+									{#if $currentGeoFilter}
+										<span class="text-teal-600">({getStateNameByCode($currentGeoFilter)})</span>
+									{/if}
+								{:else}
+									Select filters to begin
+								{/if}
+							</p>
+							{#if $selectedIndicatorCount > 0}
+								<p class="text-xs text-teal-600 truncate">
+									{$selectedIndicatorCount} variable{$selectedIndicatorCount !== 1 ? 's' : ''} selected
+								</p>
+							{/if}
+						</div>
+					</div>
+				</div>
+				<button
+					class="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-teal-100 to-teal-200 text-teal-700 hover:shadow-elegant transition-all duration-300"
+					on:click={() => showMobileFilters = !showMobileFilters}
+					aria-label="Toggle filters"
+				>
+					<svg class="w-5 h-5 transition-transform duration-300 {showMobileFilters ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						{#if showMobileFilters}
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+						{:else}
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4"/>
+						{/if}
+					</svg>
+				</button>
+			</div>
+
+			<!-- Expandable Mobile Filters -->
+			{#if showMobileFilters}
+				<div class="border-t border-teal-200/50 py-4 space-y-4" transition:slide={{ duration: 300, easing: quintOut }}>
+					<!-- Geography Level -->
+					<div class="space-y-2">
+						<label class="text-xs font-semibold text-teal-700 uppercase tracking-wide">Geographic Unit</label>
+						<select
+							class="w-full text-sm font-semibold bg-white border border-teal-200 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 rounded-xl px-4 py-3 cursor-pointer text-teal-800"
+							value={$currentGeoLevel || ''}
+							on:change={handleGeoLevelChange}
+						>
+							<option value="">Select geographic unit...</option>
+							{#each geographyLevels as level}
+								<option value={level}>{$geographies[level]?.name || level}</option>
+							{/each}
+						</select>
+					</div>
+
+					<!-- State Filter -->
+					{#if $currentGeoLevel}
+						<div class="space-y-2">
+							<label class="text-xs font-semibold text-teal-700 uppercase tracking-wide">State (Optional)</label>
+							<select
+								class="w-full text-sm font-semibold bg-white border border-teal-200 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 rounded-xl px-4 py-3 cursor-pointer text-teal-800"
+								value={$currentGeoFilter || ''}
+								on:change={handleStateFilterChange}
+							>
+								<option value="">All States</option>
+								{#each US_STATES as state}
+									<option value={state.code}>{state.name}</option>
+								{/each}
+							</select>
+						</div>
+					{/if}
+
+					<!-- Year Selector -->
+					<div class="space-y-2">
+						<label class="text-xs font-semibold text-teal-700 uppercase tracking-wide">Year</label>
+						<div class="bg-white border border-teal-200 rounded-xl">
+							<YearSelector
+								selectedYears={$currentYears}
+								mode="dropdown"
+								placeholder="Select years..."
+								on:change={(event) => setYears(event.detail.selectedYears)}
+							/>
+						</div>
+					</div>
+
+					<!-- Variables Button -->
+					<div class="space-y-2">
+						<label class="text-xs font-semibold text-teal-700 uppercase tracking-wide">Variables</label>
+						<button
+							class="w-full text-sm font-semibold bg-white border border-teal-200 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 rounded-xl px-4 py-3 cursor-pointer text-left text-teal-800 flex items-center justify-between"
+							on:click={() => { $showVariableSelector = !$showVariableSelector; showMobileFilters = false; }}
+						>
+							<span class="truncate">{getVariableDisplayText()}</span>
+							<svg class="w-4 h-4 ml-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+							</svg>
+						</button>
+					</div>
+
+					<!-- Action Buttons -->
+					<div class="flex space-x-3 pt-2">
+						<Button variant="outline" size="sm" class="flex-1" on:click={resetFilters}>
+							<svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+							</svg>
+							Reset
+						</Button>
+						<Button variant="ghost" size="sm" class="flex-1" on:click={() => { showAdvanced = !showAdvanced; }}>
+							<svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4"/>
+							</svg>
+							Advanced
+						</Button>
+					</div>
+				</div>
+			{/if}
+		</div>
+
+		<!-- Desktop Context Bar -->
+		<div class="hidden lg:block">
+			<!-- Main Context Bar -->
+			<div class="flex items-center justify-between py-4">
+				<!-- Left: Core Selections -->
+				<div class="flex items-center space-x-6">
 				<!-- Geography Level -->
 				<div class="flex items-center space-x-3 group">
 					<div class="flex items-center justify-center w-8 h-8 rounded-xl bg-gradient-to-br from-teal-100 to-teal-200 text-teal-700 shadow-elegant group-hover:shadow-luxury transition-all duration-300">
@@ -402,6 +532,7 @@
 					Reset
 				</Button>
 			</div>
+		</div>
 		</div>
 
 		<!-- Advanced Options -->
@@ -507,44 +638,47 @@
 
 <!-- Variable Selector Modal -->
 {#if $showVariableSelector}
-	<div 
+	<div
 		bind:this={modalElement}
 		on:click={handleModalClick}
-		class="fixed inset-0 bg-gradient-to-br from-black/60 via-black/50 to-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" 
+		class="fixed inset-0 bg-gradient-to-br from-black/60 via-black/50 to-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-0 md:p-4"
 		transition:slide={{ duration: 300 }}
 	>
-		<div class="bg-gradient-to-br from-white via-white to-teal-50/30 rounded-2xl shadow-floating border border-teal-200/30 max-w-4xl w-full max-h-[85vh] flex flex-col backdrop-blur-sm">
+		<div class="bg-gradient-to-br from-white via-white to-teal-50/30 md:rounded-2xl shadow-floating border-0 md:border border-teal-200/30 w-full h-full md:max-w-4xl md:max-h-[85vh] flex flex-col backdrop-blur-sm">
 			<!-- Modal Header -->
-			<div class="p-6 border-b border-teal-200/40 bg-gradient-to-r from-white via-teal-50/20 to-white rounded-t-2xl">
+			<div class="p-4 md:p-6 border-b border-teal-200/40 bg-gradient-to-r from-white via-teal-50/20 to-white md:rounded-t-2xl">
 				<div class="flex items-center justify-between">
-					<div class="flex items-center space-x-3">
-						<div class="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center shadow-elegant">
-							<svg class="w-5 h-5 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<div class="flex items-center space-x-2 md:space-x-3 min-w-0 flex-1">
+						<div class="w-8 h-8 md:w-10 md:h-10 rounded-xl bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center shadow-elegant flex-shrink-0">
+							<svg class="w-4 h-4 md:w-5 md:h-5 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
 							</svg>
 						</div>
-						<div>
-							<h2 class="text-xl font-bold text-teal-900">Select Variables</h2>
-							<p class="text-sm text-teal-700 mt-0.5">Choose variables for analysis and visualization</p>
+						<div class="min-w-0">
+							<h2 class="text-lg md:text-xl font-bold text-teal-900">Select Variables</h2>
+							<p class="text-xs md:text-sm text-teal-700 mt-0.5 hidden sm:block">Choose variables for analysis and visualization</p>
 						</div>
 					</div>
-					<div class="flex items-center space-x-3">
+					<div class="flex items-center space-x-2 md:space-x-3 flex-shrink-0">
 						{#if $selectedIndicatorCount > 0}
-							<div class="flex items-center space-x-2 bg-gradient-to-r from-teal-100 to-teal-200 text-teal-800 px-4 py-2 rounded-full shadow-elegant border border-teal-300/50">
+							<div class="flex items-center space-x-1 md:space-x-2 bg-gradient-to-r from-teal-100 to-teal-200 text-teal-800 px-2 md:px-4 py-1.5 md:py-2 rounded-full shadow-elegant border border-teal-300/50">
 								<div class="w-2 h-2 bg-teal-600 rounded-full animate-pulse"></div>
-								<span class="text-sm font-semibold">
-									{$selectedIndicatorCount} selected
+								<span class="text-xs md:text-sm font-semibold">
+									{$selectedIndicatorCount}
 								</span>
 							</div>
-							<Button variant="ghost" size="sm" on:click={clearIndicators}>
-								<svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<button
+								class="hidden md:flex items-center text-sm text-teal-600 hover:text-teal-800"
+								on:click={clearIndicators}
+							>
+								<svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
 								</svg>
-								Clear All
-							</Button>
+								Clear
+							</button>
 						{/if}
 						<button
-							class="w-10 h-10 rounded-xl bg-white/80 backdrop-blur-sm border border-teal-200/60 text-teal-600 hover:text-teal-800 hover:bg-white hover:shadow-elegant transition-all duration-300 flex items-center justify-center"
+							class="w-10 h-10 md:w-10 md:h-10 rounded-xl bg-white/80 backdrop-blur-sm border border-teal-200/60 text-teal-600 hover:text-teal-800 hover:bg-white hover:shadow-elegant transition-all duration-300 flex items-center justify-center"
 							on:click={() => $showVariableSelector = false}
 						>
 							<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -572,8 +706,8 @@
 			</div>
 
 			<!-- Modal Content -->
-			<div 
-				class="flex-1 overflow-y-auto p-6 bg-gradient-to-b from-white/50 to-teal-50/20" 
+			<div
+				class="flex-1 overflow-y-auto p-4 md:p-6 bg-gradient-to-b from-white/50 to-teal-50/20"
 				on:mouseenter={() => isVariableAreaHovered = true}
 				on:mouseleave={() => isVariableAreaHovered = false}
 			>
@@ -667,19 +801,19 @@
 											{@const isSelected = $currentSelectedIndicators.includes(indicator.id)}
 											{@const isAvailable = isVariableAvailable(indicator)}
 											{@const availabilityMessage = getAvailabilityMessage(indicator)}
-											<label 
-												class="flex items-start gap-4 p-5 transition-all duration-300 group {isAvailable ? 'hover:bg-gradient-to-r hover:from-teal-50/40 hover:to-emerald-50/40 cursor-pointer' : 'cursor-not-allowed opacity-50'}"
+											<label
+												class="flex items-start gap-3 md:gap-4 p-4 md:p-5 transition-all duration-300 group {isAvailable ? 'hover:bg-gradient-to-r hover:from-teal-50/40 hover:to-emerald-50/40 cursor-pointer' : 'cursor-not-allowed opacity-50'}"
 												title={availabilityMessage || undefined}
 												on:click={(event) => handleLabelClick(event, indicator)}
 											>
-												<div class="relative mt-1">
+												<div class="relative mt-0.5">
 													<input
 														type="checkbox"
 														checked={isSelected}
 														disabled={!isAvailable}
 														on:change={() => handleIndicatorToggle(indicator)}
 														on:click|stopPropagation
-														class="h-5 w-5 text-teal-600 border-2 border-teal-300 rounded-lg focus:ring-teal-500 focus:ring-2 transition-all duration-300 {isAvailable ? 'cursor-pointer' : 'cursor-not-allowed'}"
+														class="h-6 w-6 md:h-5 md:w-5 text-teal-600 border-2 border-teal-300 rounded-lg focus:ring-teal-500 focus:ring-2 transition-all duration-300 {isAvailable ? 'cursor-pointer' : 'cursor-not-allowed'}"
 													/>
 													{#if isSelected && isAvailable}
 														<div class="absolute inset-0 flex items-center justify-center pointer-events-none">

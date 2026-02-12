@@ -108,9 +108,9 @@
 		href="https://www.newamerica.org"
 		target="_blank"
 		rel="noopener noreferrer"
-		class="absolute top-6 left-6 z-20 hover:opacity-80 transition-opacity duration-300"
+		class="absolute top-4 left-4 md:top-6 md:left-6 z-20 hover:opacity-80 transition-opacity duration-300"
 	>
-		<img src="/na-logo.png" alt="New America" class="h-12 w-auto" />
+		<img src="/na-logo.png" alt="New America" class="h-8 md:h-12 w-auto" />
 	</a>
 
 	<!-- Floating Orbs for Visual Interest -->
@@ -122,17 +122,17 @@
 	<div class="relative z-10 min-h-screen flex items-center justify-center px-4 sm:px-6 lg:px-8">
 		<div class="text-center max-w-6xl mx-auto">
 			<!-- Dramatic Main Title -->
-			<h1 class="text-7xl md:text-9xl font-display font-black mb-8 tracking-tight leading-none">
+			<h1 class="text-4xl sm:text-5xl md:text-7xl lg:text-9xl font-display font-black mb-4 md:mb-8 tracking-tight leading-none">
 				<span class="bg-gradient-to-r from-teal-800 via-teal-700 to-teal-800 bg-clip-text text-transparent drop-shadow-sm">
 					ECHO
 				</span>
 			</h1>
 			
 			<!-- Subtitle -->
-			<p class="text-2xl md:text-3xl text-teal-700 font-light mb-4 max-w-4xl mx-auto leading-relaxed">
+			<p class="text-lg sm:text-xl md:text-2xl lg:text-3xl text-teal-700 font-light mb-2 md:mb-4 max-w-4xl mx-auto leading-relaxed">
 				Education, Community, and Housing Open Data Dashboard
 			</p>
-			<p class="text-lg md:text-xl text-teal-600 italic mb-6">
+			<p class="text-sm sm:text-base md:text-lg lg:text-xl text-teal-600 italic mb-4 md:mb-6">
 				Updated and Re-Released March 2026
 			</p>
 			
@@ -141,19 +141,18 @@
 				href="https://www.newamerica.org/prek-12-education/education-funding-equity/about/"
 				target="_blank"
 				rel="noopener noreferrer"
-				class="inline-flex items-center gap-3 text-lg md:text-xl text-teal-600 font-medium mb-10 hover:text-teal-700 transition-all duration-300 transform hover:scale-105 no-underline"
+				class="inline-flex items-center gap-2 md:gap-3 text-sm sm:text-base md:text-lg lg:text-xl text-teal-600 font-medium mb-6 md:mb-10 hover:text-teal-700 transition-all duration-300 transform hover:scale-105 no-underline"
 			>
-				<img src="/na-logo.png" alt="New America" class="h-8 w-auto" />
-				A Product of New America's Education Funding Equity Initiative
+				<img src="/na-logo.png" alt="New America" class="h-6 md:h-8 w-auto" />
+				<span class="text-center">A Product of New America's Education Funding Equity Initiative</span>
 			</a>
-			
+
 			<!-- Network Graphic -->
-			<div class="mb-10">
-				<img 
-					src="/echo-network-graphic.png" 
-					alt="ECHO Network Visualization" 
-					class="mx-auto max-w-full h-auto opacity-90 hover:opacity-100 transition-opacity duration-300"
-					style="max-height: 400px;"
+			<div class="mb-6 md:mb-10">
+				<img
+					src="/echo-network-graphic.png"
+					alt="ECHO Network Visualization"
+					class="mx-auto max-w-full h-auto opacity-90 hover:opacity-100 transition-opacity duration-300 max-h-[200px] sm:max-h-[300px] lg:max-h-[400px]"
 				/>
 			</div>
 		</div>
@@ -174,8 +173,8 @@
 	<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
 		<!-- About Section -->
 		<section class="mb-16">
-			<div class="text-center mb-16">
-				<h2 class="text-5xl font-display font-bold text-slate-900 mb-6">
+			<div class="text-center mb-8 md:mb-16">
+				<h2 class="text-3xl sm:text-4xl lg:text-5xl font-display font-bold text-slate-900 mb-4 md:mb-6">
 					<span class="bg-gradient-to-r from-teal-900 via-teal-800 to-teal-900 bg-clip-text text-transparent">
 						About the ECHO Dashboard
 					</span>
@@ -185,13 +184,13 @@
 			
 			<div class="max-w-5xl mx-auto">
 				<Card variant="premium" padding="xl">
-					<div class="text-slate-700 text-xl leading-relaxed space-y-8">
-						<p class="text-2xl font-light text-slate-800 leading-relaxed">
-							This dashboard includes a wide range of national data related to education, housing, and community 
-							demographics and welfare. This data is intended for use by policymakers, advocates, journalists, and anyone 
+					<div class="text-slate-700 text-base md:text-xl leading-relaxed space-y-4 md:space-y-8">
+						<p class="text-lg md:text-2xl font-light text-slate-800 leading-relaxed">
+							This dashboard includes a wide range of national data related to education, housing, and community
+							demographics and welfare. This data is intended for use by policymakers, advocates, journalists, and anyone
 							who seeks to understand and shape social policy in their states and communities.
 						</p>
-						<p class="text-lg">
+						<p class="text-base md:text-lg">
 							The data is presented at four geographic levels: school districts, state legislative districts, counties, and census tracts. 
 							The data can be viewed in maps or data tables, and can be used to generate several kinds of charts.
 						</p>
@@ -228,7 +227,7 @@
 				</p>
 			</div>
 			
-			<div class="grid grid-cols-1 md:grid-cols-3 gap-16">
+			<div class="grid grid-cols-1 md:grid-cols-3 gap-8 md:gap-16">
 				<!-- Step 1: Interactive Geographic Level Selection -->
 				<div 
 					in:fly={{ y: 50, duration: 600, delay: 100 }}
@@ -237,13 +236,13 @@
 					<div class="bg-gradient-to-br from-white via-white to-teal-50/30 rounded-2xl shadow-floating border border-teal-200/30 backdrop-blur-sm p-8 hover:shadow-luxury transition-all duration-300 group">
 					<div class="text-center">
 						<div class="relative mb-10">
-							<div class="w-40 h-40 bg-gradient-to-br from-teal-100 to-teal-200 rounded-3xl mx-auto mb-8 flex items-center justify-center shadow-elegant group-hover:shadow-luxury transition-all duration-500 border border-teal-300/50">
-								<svg class="w-20 h-20 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<div class="w-24 h-24 sm:w-32 sm:h-32 lg:w-40 lg:h-40 bg-gradient-to-br from-teal-100 to-teal-200 rounded-3xl mx-auto mb-8 flex items-center justify-center shadow-elegant group-hover:shadow-luxury transition-all duration-500 border border-teal-300/50">
+								<svg class="w-12 h-12 sm:w-16 sm:h-16 lg:w-20 lg:h-20 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
 								</svg>
 							</div>
-							<div class="w-16 h-16 bg-gradient-to-r from-teal-600 to-teal-700 text-white rounded-xl flex items-center justify-center mx-auto mb-8 font-bold text-2xl shadow-luxury relative">
+							<div class="w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 bg-gradient-to-r from-teal-600 to-teal-700 text-white rounded-xl flex items-center justify-center mx-auto mb-8 font-bold text-2xl shadow-luxury relative">
 								1
 								{#if $stepCompletion.step1}
 									<div class="absolute -top-2 -right-2 w-6 h-6 bg-emerald-500 rounded-full flex items-center justify-center shadow-elegant">
@@ -312,12 +311,12 @@
 					<div class="bg-gradient-to-br from-white via-white to-emerald-50/30 rounded-2xl shadow-floating border border-emerald-200/30 backdrop-blur-sm p-8 hover:shadow-luxury transition-all duration-300 group">
 					<div class="text-center">
 						<div class="relative mb-10">
-							<div class="w-40 h-40 bg-gradient-to-br from-emerald-100 to-emerald-200 rounded-3xl mx-auto mb-8 flex items-center justify-center shadow-elegant group-hover:shadow-luxury transition-all duration-500 border border-emerald-300/50">
-								<svg class="w-20 h-20 text-emerald-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<div class="w-24 h-24 sm:w-32 sm:h-32 lg:w-40 lg:h-40 bg-gradient-to-br from-emerald-100 to-emerald-200 rounded-3xl mx-auto mb-8 flex items-center justify-center shadow-elegant group-hover:shadow-luxury transition-all duration-500 border border-emerald-300/50">
+								<svg class="w-12 h-12 sm:w-16 sm:h-16 lg:w-20 lg:h-20 text-emerald-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
 								</svg>
 							</div>
-							<div class="w-16 h-16 bg-gradient-to-r from-emerald-600 to-emerald-700 text-white rounded-xl flex items-center justify-center mx-auto mb-8 font-bold text-2xl shadow-luxury relative">
+							<div class="w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 bg-gradient-to-r from-emerald-600 to-emerald-700 text-white rounded-xl flex items-center justify-center mx-auto mb-8 font-bold text-2xl shadow-luxury relative">
 								2
 								{#if $stepCompletion.step2}
 									<div class="absolute -top-2 -right-2 w-6 h-6 bg-emerald-500 rounded-full flex items-center justify-center shadow-elegant">
@@ -362,13 +361,13 @@
 					<div class="bg-gradient-to-br from-white via-white to-slate-50/30 rounded-2xl shadow-floating border border-slate-200/30 backdrop-blur-sm p-8 hover:shadow-luxury transition-all duration-300 group">
 					<div class="text-center">
 						<div class="relative mb-10">
-							<div class="w-40 h-40 bg-gradient-to-br from-slate-100 to-slate-200 rounded-3xl mx-auto mb-8 flex items-center justify-center shadow-elegant group-hover:shadow-luxury transition-all duration-500 border border-slate-300/50">
+							<div class="w-24 h-24 sm:w-32 sm:h-32 lg:w-40 lg:h-40 bg-gradient-to-br from-slate-100 to-slate-200 rounded-3xl mx-auto mb-8 flex items-center justify-center shadow-elegant group-hover:shadow-luxury transition-all duration-500 border border-slate-300/50">
 								<svg class="w-20 h-20 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
 								</svg>
 							</div>
-							<div class="w-16 h-16 bg-gradient-to-r from-slate-600 to-slate-700 text-white rounded-xl flex items-center justify-center mx-auto mb-8 font-bold text-2xl shadow-luxury relative">
+							<div class="w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 bg-gradient-to-r from-slate-600 to-slate-700 text-white rounded-xl flex items-center justify-center mx-auto mb-8 font-bold text-2xl shadow-luxury relative">
 								3
 								{#if $stepCompletion.step3}
 									<div class="absolute -top-2 -right-2 w-6 h-6 bg-emerald-500 rounded-full flex items-center justify-center shadow-elegant">

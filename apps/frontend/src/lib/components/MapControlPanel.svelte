@@ -72,7 +72,7 @@
 </script>
 
 <!-- Always show the control panel if there are controls or we want to show the save button -->
-<div class="absolute top-4 right-4 z-20 bg-white bg-opacity-90 backdrop-blur-sm rounded-lg shadow-lg border border-gray-200 p-2">
+<div class="absolute top-2 right-2 md:top-4 md:right-4 z-20 bg-white bg-opacity-90 backdrop-blur-sm rounded-lg shadow-lg border border-gray-200 p-1.5 md:p-2 max-w-[160px] md:max-w-none">
 	<!-- Save Map Button -->
 	<div class="mb-2">
 		<button

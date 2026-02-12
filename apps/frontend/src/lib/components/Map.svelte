@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { browser } from '$app/environment';
+	import { PUBLIC_MAPBOX_TOKEN } from '$env/static/public';
 	import { 
 		unifiedFilters,
 		currentGeoLevel,
@@ -238,7 +239,7 @@
 	}
 	
 	// Mapbox configuration
-	const MAPBOX_TOKEN = 'pk.eyJ1Ijoiam9yZGFuYWJiIiwiYSI6ImNtOWx1Y3FsMTAwdWkybXB4ajdmbXRnZHkifQ.VnprPvy-fvxSO05l9c1LOw';
+	const MAPBOX_TOKEN = PUBLIC_MAPBOX_TOKEN;
 	const MAPBOX_STYLE = 'mapbox://styles/jordanabb/cmb5puoou002f01qt4r796okw';
 	
 	// Choropleth colors (teal palette to match app theme)
@@ -1130,7 +1131,38 @@
 					};
 				}
 			});
-			
+
+			// Touch event handler for mobile - show tooltip on tap
+			map.on('touchend', 'choropleth-layer', (e: any) => {
+				// Prevent if user was panning/zooming (check if touch moved significantly)
+				if (e.originalEvent && e.originalEvent.touches && e.originalEvent.touches.length > 0) {
+					return; // Multi-touch, likely a gesture
+				}
+
+				const features = map.queryRenderedFeatures(e.point, { layers: ['choropleth-layer'] });
+				if (features.length > 0) {
+					const feature = features[0];
+					const rect = mapContainer.getBoundingClientRect();
+
+					// Hide hover tooltip
+					hoverTooltip = {
+						isVisible: false,
+						feature: null,
+						position: { x: 0, y: 0 }
+					};
+
+					// Show click tooltip at touch position
+					clickTooltip = {
+						isVisible: true,
+						feature: feature,
+						position: {
+							x: e.point.x + rect.left,
+							y: e.point.y + rect.top
+						}
+					};
+				}
+			});
+
 			// Fit map to data bounds
 			if (geoJsonWithData.features.length > 0) {
 				const bounds = new mapboxgl.LngLatBounds();
@@ -1357,7 +1389,7 @@
 
 	<!-- Legend -->
 	{#if legendData.length > 0 && !isLoading && !error}
-		<div class="absolute bottom-4 left-4 z-10">
+		<div class="absolute bottom-2 left-2 md:bottom-4 md:left-4 z-10 max-w-[140px] md:max-w-none">
 			<Legend legend={legendData} />
 		</div>
 	{/if}

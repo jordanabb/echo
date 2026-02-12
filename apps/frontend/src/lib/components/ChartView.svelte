@@ -1759,32 +1759,32 @@
 			
 			<!-- Chart type selection -->
 			{#if !selectedChartType}
-				<div class="p-6">
-					
-					<div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+				<div class="p-4 md:p-6">
+
+					<div class="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6 max-w-4xl mx-auto">
 						{#each chartOptions as option}
 							<button
-								class="p-6 bg-white/80 backdrop-blur-sm border border-teal-200/60 rounded-xl hover:bg-white hover:shadow-luxury hover:border-teal-300 transition-all duration-300 text-left group {option.disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} shadow-elegant"
+								class="p-4 md:p-6 bg-white/80 backdrop-blur-sm border border-teal-200/60 rounded-xl hover:bg-white hover:shadow-luxury hover:border-teal-300 transition-all duration-300 text-left group {option.disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} shadow-elegant"
 								on:click={() => !option.disabled && selectChartType(option.id)}
 								disabled={option.disabled}
 							>
-								<div class="flex items-start space-x-4">
-									<div class="w-12 h-12 rounded-xl bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center shadow-elegant group-hover:shadow-luxury transition-all duration-300">
-										<svg class="w-6 h-6 text-teal-700" fill="currentColor" viewBox="0 0 24 24">
+								<div class="flex items-start space-x-3 md:space-x-4">
+									<div class="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center shadow-elegant group-hover:shadow-luxury transition-all duration-300 flex-shrink-0">
+										<svg class="w-5 h-5 md:w-6 md:h-6 text-teal-700" fill="currentColor" viewBox="0 0 24 24">
 											<path d="{option.icon}"/>
 										</svg>
 									</div>
-									<div class="flex-1">
-										<h5 class="text-lg font-bold text-teal-900 mb-2 group-hover:text-teal-800">
+									<div class="flex-1 min-w-0">
+										<h5 class="text-base md:text-lg font-bold text-teal-900 mb-1 md:mb-2 group-hover:text-teal-800">
 											{option.title}
 										</h5>
-										<p class="text-sm text-teal-700 mb-3 leading-relaxed">
+										<p class="text-xs md:text-sm text-teal-700 mb-2 md:mb-3 leading-relaxed line-clamp-2">
 											{option.description}
 										</p>
-										<div class="inline-flex items-center text-sm font-semibold text-teal-600 bg-gradient-to-r from-teal-100 to-teal-200 px-3 py-1.5 rounded-full border border-teal-300/50">
-											<span>{option.useCase}</span>
+										<div class="inline-flex items-center text-xs md:text-sm font-semibold text-teal-600 bg-gradient-to-r from-teal-100 to-teal-200 px-2 md:px-3 py-1 md:py-1.5 rounded-full border border-teal-300/50">
+											<span class="truncate">{option.useCase}</span>
 											{#if !option.disabled}
-												<svg class="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<svg class="w-3 h-3 md:w-4 md:h-4 ml-1 md:ml-2 group-hover:translate-x-1 transition-transform flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
 												</svg>
 											{/if}
@@ -1799,8 +1799,8 @@
 			
 			<!-- Chart configuration -->
 			{#if (selectedChartType === 'pie' || $isAnalysisReady) && selectedChartType}
-				<div class="p-6">
-					<div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+				<div class="p-4 md:p-6">
+					<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-8">
 						<!-- Configuration Panel -->
 						<div class="lg:col-span-1">
 							<Card variant="outline">
@@ -2188,7 +2188,7 @@
 										{/if}
 										
 										<!-- Chart Canvas -->
-										<div class="relative h-96 w-full">
+										<div class="relative h-64 sm:h-80 md:h-96 w-full">
 											<!-- Loading overlay for chart area only -->
 											{#if isLoading}
 												<div 
@@ -2204,10 +2204,9 @@
 													/>
 												</div>
 											{/if}
-											<canvas 
+											<canvas
 												bind:this={chartCanvas}
 												class="w-full h-full"
-												style="max-height: 384px;"
 											></canvas>
 										</div>
 										{#if chartData.length > 0 && !chartInstance}

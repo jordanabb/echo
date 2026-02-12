@@ -354,51 +354,51 @@
 	
 	// Function to get column CSS classes
 	function getColumnClasses(columnName: string): string {
-		const baseClasses = 'px-4 py-3 text-left';
-		
+		const baseClasses = 'px-2 md:px-4 py-2 md:py-3 text-left text-sm md:text-base';
+
 		if (isStickyColumn(columnName)) {
 			let leftOffset = 'left-0';
 			let minWidth = '';
-			
+
 			if (columnName === 'geo_name') {
 				leftOffset = 'left-0';
-				minWidth = 'min-w-[200px] w-[200px]';
+				minWidth = 'min-w-[120px] w-[120px] md:min-w-[200px] md:w-[200px]';
 			} else if (columnName === 'state_fips') {
-				leftOffset = 'left-[200px]';
-				minWidth = 'min-w-[120px] w-[120px]';
+				leftOffset = 'left-[120px] md:left-[200px]';
+				minWidth = 'min-w-[60px] w-[60px] md:min-w-[120px] md:w-[120px]';
 			} else if (columnName === 'year') {
-				leftOffset = 'left-[320px]';
-				minWidth = 'min-w-[80px] w-[80px]';
+				leftOffset = 'left-[180px] md:left-[320px]';
+				minWidth = 'min-w-[50px] w-[50px] md:min-w-[80px] md:w-[80px]';
 			}
-			
+
 			return `${baseClasses} ${minWidth} sticky ${leftOffset} bg-white border-r border-gray-200 z-10`;
 		}
-		
+
 		return baseClasses;
 	}
-	
+
 	// Function to get header CSS classes
 	function getHeaderClasses(columnName: string): string {
-		const baseClasses = 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b border-gray-200';
-		
+		const baseClasses = 'px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b border-gray-200';
+
 		if (isStickyColumn(columnName)) {
 			let leftOffset = 'left-0';
 			let minWidth = '';
-			
+
 			if (columnName === 'geo_name') {
 				leftOffset = 'left-0';
-				minWidth = 'min-w-[200px] w-[200px]';
+				minWidth = 'min-w-[120px] w-[120px] md:min-w-[200px] md:w-[200px]';
 			} else if (columnName === 'state_fips') {
-				leftOffset = 'left-[200px]';
-				minWidth = 'min-w-[120px] w-[120px]';
+				leftOffset = 'left-[120px] md:left-[200px]';
+				minWidth = 'min-w-[60px] w-[60px] md:min-w-[120px] md:w-[120px]';
 			} else if (columnName === 'year') {
-				leftOffset = 'left-[320px]';
-				minWidth = 'min-w-[80px] w-[80px]';
+				leftOffset = 'left-[180px] md:left-[320px]';
+				minWidth = 'min-w-[50px] w-[50px] md:min-w-[80px] md:w-[80px]';
 			}
-			
+
 			return `${baseClasses} ${minWidth} sticky ${leftOffset} bg-gray-50 border-r border-gray-200 z-20`;
 		}
-		
+
 		return `${baseClasses} bg-gray-50`;
 	}
 </script>
@@ -406,10 +406,10 @@
 <div class="bg-gradient-to-br from-white via-white to-teal-50/30 rounded-2xl shadow-floating border border-teal-200/30 backdrop-blur-sm">
 	<div class="relative">
 		<!-- Header -->
-		<div class="px-6 py-5 border-b border-teal-200/40 bg-gradient-to-r from-white via-teal-50/20 to-white rounded-t-2xl">
-			<div class="flex items-center space-x-3">
-				<div class="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center shadow-elegant">
-					<svg class="w-5 h-5 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+		<div class="px-4 md:px-6 py-4 md:py-5 border-b border-teal-200/40 bg-gradient-to-r from-white via-teal-50/20 to-white rounded-t-2xl">
+			<div class="flex items-center space-x-2 md:space-x-3">
+				<div class="w-8 h-8 md:w-10 md:h-10 rounded-xl bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center shadow-elegant flex-shrink-0">
+					<svg class="w-4 h-4 md:w-5 md:h-5 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-4v8m-7 0V4a1 1 0 011-1h12a1 1 0 011 1v16a1 1 0 01-1 1H4a1 1 0 01-1-1z"/>
 					</svg>
 				</div>
@@ -476,10 +476,10 @@
 			<!-- Data table -->
 			{#if !isLoading && !error && tableData.length > 0}
 				<!-- Table controls -->
-				<div class="px-6 py-4 border-b border-teal-200/40 bg-gradient-to-r from-teal-50/20 via-white/50 to-teal-50/20">
-					<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+				<div class="px-4 md:px-6 py-3 md:py-4 border-b border-teal-200/40 bg-gradient-to-r from-teal-50/20 via-white/50 to-teal-50/20">
+					<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 md:gap-4">
 						<!-- Search input -->
-						<div class="flex-1 max-w-md">
+						<div class="flex-1 w-full sm:max-w-md">
 							<div class="relative">
 								<div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
 									<svg class="h-5 w-5 text-teal-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">

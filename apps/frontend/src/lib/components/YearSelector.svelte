@@ -127,7 +127,7 @@
 	<div class="relative" bind:this={dropdownElement}>
 		<button
 			type="button"
-			class="w-full flex items-center justify-between px-3 py-2 border border-neutral-300 rounded-md shadow-sm bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 hover:bg-neutral-50 transition-colors"
+			class="w-full flex items-center justify-between px-4 py-2.5 border border-neutral-200 rounded-xl bg-white/80 backdrop-blur-sm text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-700 hover:bg-white transition-all duration-300 text-neutral-800 min-w-[140px]"
 			on:click={() => isOpen = !isOpen}
 		>
 			<span class="truncate" class:text-neutral-500={selectedYears.length === 0}>
@@ -144,7 +144,7 @@
 		</button>
 
 		{#if isOpen}
-			<div class="absolute z-[60] mt-1 w-full min-w-max bg-white border border-neutral-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
+			<div class="absolute z-[60] mt-1 w-full min-w-max bg-white border border-neutral-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
 				<!-- Header with controls -->
 				{#if showSelectAll || showClearAll}
 					<div class="px-3 py-2 border-b border-neutral-200 bg-neutral-50">

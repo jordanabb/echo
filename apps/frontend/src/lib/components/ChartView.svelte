@@ -12,7 +12,7 @@
 		isAnalysisReady,
 		setYears
 	} from '$lib/stores/unifiedFilters';
-	import { crossfade } from 'svelte/transition';
+	import { crossfade, slide } from 'svelte/transition';
 	import { quintOut } from 'svelte/easing';
 	import { formatValueByType } from '$lib/utils';
 	import { geographies } from '$lib/stores/metadata';
@@ -98,7 +98,7 @@
 	let xAxisVariable: string = '';
 	let yAxisVariable: string = '';
 	let thirdVariable: string = '';
-	let thirdVariableMode: 'color' | 'size' = 'color'; // Toggle between color and size
+	let thirdVariableMode: 'color' | 'size' | 'state' = 'color'; // Toggle between color, size, and state
 	let selectedYear: number | null = null;
 	let selectedGeographies: string[] = [];
 	
@@ -113,6 +113,9 @@
 	
 	// Trend line functionality for scatter plot
 	let showTrendLine: boolean = false;
+
+	// Bar chart options
+	let hideBarLabels: boolean = false;
 	
 	// Geographic unit selection for line charts
 	let availableGeoUnits: {geo_id: string, geo_name: string}[] = [];
@@ -126,6 +129,23 @@
 	// Chart.js instance and canvas reference
 	let chartCanvas: HTMLCanvasElement;
 	let chartInstance: Chart | null = null;
+
+	// Expanded view state
+	let isExpanded = false;
+
+	function toggleExpanded() {
+		isExpanded = !isExpanded;
+		// Resize chart repeatedly during the transition for smooth redraw
+		const start = performance.now();
+		const duration = 500;
+		function resizeDuringTransition() {
+			chartInstance?.resize();
+			if (performance.now() - start < duration) {
+				requestAnimationFrame(resizeDuringTransition);
+			}
+		}
+		requestAnimationFrame(resizeDuringTransition);
+	}
 	
 	// Crossfade transition for smooth updates
 	const [send, receive] = crossfade({
@@ -147,7 +167,8 @@
 	// Function to handle chart type selection
 	async function selectChartType(chartType: ChartType) {
 		selectedChartType = chartType;
-		
+		isExpanded = false;
+
 		// Reset configuration when changing chart type
 		xAxisVariable = '';
 		yAxisVariable = '';
@@ -219,8 +240,8 @@
 			});
 			
 			// Apply state filter if one is selected
-			if ($currentGeoFilter) {
-				params.set('state_filter', $currentGeoFilter);
+			if ($currentGeoFilter && $currentGeoFilter.length > 0) {
+				params.set('state_filter', $currentGeoFilter.join(','));
 			}
 			
 			// Use the geometries endpoint which properly filters by geo_level
@@ -273,8 +294,8 @@
 			});
 			
 			// Apply state filter if one is selected
-			if ($currentGeoFilter) {
-				params.set('state_filter', $currentGeoFilter);
+			if ($currentGeoFilter && $currentGeoFilter.length > 0) {
+				params.set('state_filter', $currentGeoFilter.join(','));
 			}
 			
 			console.log('Fetching available geo units with URL:', `/api/geometries?${params}`);
@@ -401,14 +422,15 @@
 				throw new Error(`HTTP ${response.status}: ${response.statusText}`);
 			}
 			
-			const data = await response.json();
-			
+			const result = await response.json();
+			const data = result.data || result;
+
 			if (!Array.isArray(data) || data.length === 0) {
 				// No data available
 				chartData = [];
 				return;
 			}
-			
+
 			console.log('Raw chart data received:', {
 				rows: data.length,
 				sampleRow: data[0],
@@ -506,6 +528,13 @@
 					// If no geographic units are selected, limit to 20 for readability
 					// If specific units are selected, show all of them
 					const resultData = Array.from(geoMap.values());
+
+					// Update available geo units for search
+					availableGeoUnitsForSearch = resultData
+						.filter(d => d.geo_id && d.geo_name)
+						.map(d => ({ geo_id: d.geo_id, geo_name: d.geo_name }))
+						.sort((a, b) => a.geo_name.localeCompare(b.geo_name));
+
 					return selectedGeoUnits.length > 0 ? resultData : resultData.slice(0, 20);
 				}
 				break;
@@ -546,16 +575,16 @@
 					// Convert to array format for Chart.js with separate datasets per geographic unit
 					const datasets = [];
 					const colors = [
-						'rgba(15, 118, 110, 1)',    // Teal 700
-						'rgba(13, 148, 136, 1)',    // Teal 600
-						'rgba(20, 184, 166, 1)',    // Teal 500
-						'rgba(45, 212, 191, 1)',    // Teal 400
-						'rgba(94, 234, 212, 1)',    // Teal 300
-						'rgba(153, 246, 228, 1)',   // Teal 200
-						'rgba(17, 94, 89, 1)',      // Teal 800
-						'rgba(19, 78, 74, 1)',      // Teal 900
-						'rgba(4, 47, 46, 1)',       // Teal 950
-						'rgba(204, 251, 241, 1)'    // Teal 100
+						'#027272',  // Teal-70
+						'#08ACA6',  // Teal-50
+						'#035656',  // Teal-80
+						'#6DDED1',  // Teal-30
+						'#023A3E',  // Teal-90
+						'#29CAC0',  // Teal-40
+						'#068F8C',  // Teal-60
+						'#ADEDE4',  // Teal-20
+						'#011E20',  // Teal-100
+						'#E4F7F4'   // Teal-10
 					];
 					
 					let colorIndex = 0;
@@ -980,11 +1009,11 @@
 					data: {
 						labels: data.map(d => d.label),
 						datasets: [{
-							label: yAxisVariable,
+							label: getIndicatorDisplayName(yAxisVariable),
 							data: data.map(d => d.value),
-							backgroundColor: 'rgba(15, 118, 110, 0.6)',
-							borderColor: 'rgba(15, 118, 110, 1)',
-							borderWidth: 1
+							backgroundColor: data.map(d => highlightedGeoId && d.geo_id === highlightedGeoId ? 'rgba(245, 158, 11, 0.8)' : 'rgba(2, 114, 114, 0.6)'),
+							borderColor: data.map(d => highlightedGeoId && d.geo_id === highlightedGeoId ? 'rgba(245, 158, 11, 1)' : 'rgba(2, 114, 114, 1)'),
+							borderWidth: data.map(d => highlightedGeoId && d.geo_id === highlightedGeoId ? 2 : 1)
 						}]
 					},
 					options: {
@@ -999,14 +1028,17 @@
 							},
 							x: {
 								title: {
-									display: true,
-									text: xAxisVariable === 'geo_name' ? 'Geography' : getIndicatorDisplayName(xAxisVariable)
+									display: xAxisVariable !== 'geo_name',
+									text: xAxisVariable === 'geo_name' ? '' : getIndicatorDisplayName(xAxisVariable)
+								},
+								ticks: {
+									display: !hideBarLabels
 								}
 							}
 						}
 					}
 				};
-			
+
 			case 'line':
 				return {
 					type: 'line' as const,
@@ -1054,8 +1086,66 @@
 				
 				// Create datasets based on third variable mode
 				let datasets = [];
-				
-				if (thirdVariable && validScatterData.some(d => d.thirdValue !== null && d.thirdValue !== undefined)) {
+
+				if (thirdVariableMode === 'state') {
+					// Group data points by state
+					const stateGroups = new Map<string, any[]>();
+					validScatterData.forEach(d => {
+						const state = d.state_name || 'Unknown State';
+						if (!stateGroups.has(state)) stateGroups.set(state, []);
+						stateGroups.get(state)!.push(d);
+					});
+
+					// Distinct colors for states (up to 50+)
+					const stateColors = [
+						'rgba(2, 114, 114, 0.7)',    'rgba(220, 38, 38, 0.7)',
+						'rgba(37, 99, 235, 0.7)',    'rgba(234, 88, 12, 0.7)',
+						'rgba(22, 163, 74, 0.7)',    'rgba(147, 51, 234, 0.7)',
+						'rgba(202, 138, 4, 0.7)',    'rgba(14, 165, 233, 0.7)',
+						'rgba(219, 39, 119, 0.7)',   'rgba(101, 163, 13, 0.7)',
+						'rgba(79, 70, 229, 0.7)',    'rgba(245, 158, 11, 0.7)',
+						'rgba(6, 182, 212, 0.7)',    'rgba(225, 29, 72, 0.7)',
+						'rgba(5, 150, 105, 0.7)',    'rgba(168, 85, 247, 0.7)',
+						'rgba(249, 115, 22, 0.7)',   'rgba(59, 130, 246, 0.7)',
+						'rgba(16, 185, 129, 0.7)',   'rgba(236, 72, 153, 0.7)',
+						'rgba(132, 204, 22, 0.7)',   'rgba(99, 102, 241, 0.7)',
+						'rgba(251, 146, 60, 0.7)',   'rgba(34, 211, 238, 0.7)',
+						'rgba(244, 63, 94, 0.7)',    'rgba(52, 211, 153, 0.7)',
+						'rgba(192, 132, 252, 0.7)',  'rgba(253, 186, 116, 0.7)',
+						'rgba(56, 189, 248, 0.7)',   'rgba(251, 113, 133, 0.7)',
+						'rgba(74, 222, 128, 0.7)',   'rgba(129, 140, 248, 0.7)',
+						'rgba(253, 224, 71, 0.7)',   'rgba(103, 232, 249, 0.7)',
+						'rgba(252, 165, 165, 0.7)',  'rgba(110, 231, 183, 0.7)',
+						'rgba(196, 181, 253, 0.7)',  'rgba(254, 215, 170, 0.7)',
+						'rgba(186, 230, 253, 0.7)',  'rgba(253, 164, 175, 0.7)',
+						'rgba(187, 247, 208, 0.7)',  'rgba(165, 180, 252, 0.7)',
+						'rgba(254, 240, 138, 0.7)',  'rgba(153, 246, 228, 0.7)',
+						'rgba(254, 202, 202, 0.7)',  'rgba(167, 243, 208, 0.7)',
+						'rgba(221, 214, 254, 0.7)',  'rgba(255, 228, 196, 0.7)',
+						'rgba(191, 219, 254, 0.7)',  'rgba(252, 231, 243, 0.7)',
+					];
+
+					const sortedStates = Array.from(stateGroups.keys()).sort();
+					sortedStates.forEach((state, i) => {
+						const color = stateColors[i % stateColors.length];
+						const stateData = stateGroups.get(state)!;
+						datasets.push({
+							label: state,
+							data: stateData.map(d => ({
+								...d,
+								backgroundColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : color,
+								borderColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : color.replace('0.7)', '1)'),
+								pointRadius: highlightedGeoId === d.geo_id ? 8 : 4,
+								pointHoverRadius: highlightedGeoId === d.geo_id ? 10 : 6
+							})),
+							backgroundColor: color,
+							borderColor: color.replace('0.7)', '1)'),
+							borderWidth: 1,
+							pointRadius: 4,
+							pointHoverRadius: 6
+						});
+					});
+				} else if (thirdVariable && validScatterData.some(d => d.thirdValue !== null && d.thirdValue !== undefined)) {
 					if (thirdVariableMode === 'color') {
 						// Group by color variable values
 						const colorValues = validScatterData
@@ -1072,11 +1162,11 @@
 							const groupSize = range / numGroups;
 							
 							const colors = [
-								'rgba(15, 118, 110, 0.7)',    // Teal 700
-								'rgba(13, 148, 136, 0.7)',    // Teal 600
-								'rgba(20, 184, 166, 0.7)',    // Teal 500
-								'rgba(45, 212, 191, 0.7)',    // Teal 400
-								'rgba(94, 234, 212, 0.7)'     // Teal 300
+								'rgba(2, 114, 114, 0.7)',     // Teal-70
+								'rgba(8, 172, 166, 0.7)',     // Teal-50
+								'rgba(6, 143, 140, 0.7)',     // Teal-60
+								'rgba(41, 202, 192, 0.7)',    // Teal-40
+								'rgba(109, 222, 209, 0.7)'    // Teal-30
 							];
 							
 							for (let i = 0; i < numGroups; i++) {
@@ -1156,8 +1246,8 @@
 								
 								return {
 									...d,
-									backgroundColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 0.7)' : 'rgba(15, 118, 110, 0.6)',
-									borderColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : 'rgba(15, 118, 110, 1)',
+									backgroundColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 0.7)' : 'rgba(2, 114, 114, 0.6)',
+									borderColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : 'rgba(2, 114, 114, 1)',
 									calculatedRadius: highlightedGeoId === d.geo_id ? pointRadius + 3 : pointRadius
 								};
 							});
@@ -1179,13 +1269,13 @@
 						label: 'Data Points',
 						data: validScatterData.map(d => ({
 							...d,
-							backgroundColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : 'rgba(15, 118, 110, 0.6)',
-							borderColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : 'rgba(15, 118, 110, 1)',
+							backgroundColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : 'rgba(2, 114, 114, 0.6)',
+							borderColor: highlightedGeoId === d.geo_id ? 'rgba(245, 158, 11, 1)' : 'rgba(2, 114, 114, 1)',
 							pointRadius: highlightedGeoId === d.geo_id ? 8 : 5,
 							pointHoverRadius: highlightedGeoId === d.geo_id ? 10 : 7
 						})),
-						backgroundColor: 'rgba(15, 118, 110, 0.6)',
-						borderColor: 'rgba(15, 118, 110, 1)',
+						backgroundColor: 'rgba(2, 114, 114, 0.6)',
+						borderColor: 'rgba(2, 114, 114, 1)',
 						borderWidth: 1,
 						pointRadius: 5,
 						pointHoverRadius: 7
@@ -1280,12 +1370,16 @@
 						datasets: [{
 							data: data.map(d => d.value),
 							backgroundColor: [
-								'rgba(15, 118, 110, 0.8)',    // Teal 700
-								'rgba(13, 148, 136, 0.8)',    // Teal 600
-								'rgba(20, 184, 166, 0.8)',    // Teal 500
-								'rgba(45, 212, 191, 0.8)',    // Teal 400
-								'rgba(94, 234, 212, 0.8)',    // Teal 300
-								'rgba(153, 246, 228, 0.8)'    // Teal 200
+								'rgba(2, 114, 114, 0.85)',    // Teal
+								'rgba(220, 120, 50, 0.85)',   // Orange
+								'rgba(90, 90, 170, 0.85)',    // Indigo
+								'rgba(200, 70, 70, 0.85)',    // Red
+								'rgba(60, 160, 80, 0.85)',    // Green
+								'rgba(180, 140, 50, 0.85)',   // Gold
+								'rgba(140, 70, 160, 0.85)',   // Purple
+								'rgba(70, 150, 190, 0.85)',   // Sky blue
+								'rgba(190, 90, 130, 0.85)',   // Rose
+								'rgba(100, 130, 60, 0.85)'    // Olive
 							],
 							borderWidth: 2,
 							borderColor: '#ffffff'
@@ -1369,10 +1463,10 @@
 		return stateAbbreviations[stateName] || null;
 	}
 
-	// Function to get display name for geographic levels
+	// Function to get display name for geographic levels (plural)
 	function getGeoLevelDisplayName(geoLevel: string): string {
 		if (!geoLevel) return 'geographic units';
-		
+
 		switch (geoLevel) {
 			case 'counties':
 				return 'counties';
@@ -1383,8 +1477,25 @@
 			case 'census_tracts':
 				return 'census tracts';
 			default:
-				// Convert underscores to spaces and capitalize each word
-				return geoLevel.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+				return geoLevel.replace(/_/g, ' ');
+		}
+	}
+
+	// Function to get singular display name for geographic levels
+	function getGeoLevelSingularName(geoLevel: string): string {
+		if (!geoLevel) return 'geographic unit';
+
+		switch (geoLevel) {
+			case 'counties':
+				return 'county';
+			case 'school_districts':
+				return 'school district';
+			case 'legislative_districts':
+				return 'legislative district';
+			case 'census_tracts':
+				return 'census tract';
+			default:
+				return geoLevel.replace(/_/g, ' ');
 		}
 	}
 
@@ -1529,18 +1640,18 @@
 		
 		if (matchingUnit) {
 			highlightedGeoId = matchingUnit.geo_id;
-			
+
 			// Re-render chart with highlighting
 			if (chartInstance) {
 				renderChart();
-				
+
 				// Find the data point and trigger tooltip
 				setTimeout(() => {
 					if (chartInstance && selectedChartType === 'scatter') {
 						const datasets = chartInstance.data.datasets;
 						let pointIndex = -1;
 						let datasetIndex = -1;
-						
+
 						// Find the highlighted point across all datasets
 						for (let i = 0; i < datasets.length; i++) {
 							const dataset = datasets[i];
@@ -1550,7 +1661,7 @@
 								break;
 							}
 						}
-						
+
 						if (pointIndex !== -1 && datasetIndex !== -1) {
 							// Show tooltip for the highlighted point
 							chartInstance.tooltip.setActiveElements([{
@@ -1560,6 +1671,29 @@
 								x: 0,
 								y: 0
 							});
+							chartInstance.update('none');
+						}
+					} else if (chartInstance && selectedChartType === 'bar') {
+						// Find the matching bar by label
+						const labels = chartInstance.data.labels || [];
+						const barIndex = labels.findIndex((label: any) => {
+							const labelStr = String(label).toLowerCase();
+							return labelStr.includes(matchingUnit.geo_name.toLowerCase());
+						});
+
+						if (barIndex !== -1) {
+							// Highlight the bar and show tooltip
+							chartInstance.tooltip.setActiveElements([{
+								datasetIndex: 0,
+								index: barIndex
+							}], {
+								x: 0,
+								y: 0
+							});
+							chartInstance.setActiveElements([{
+								datasetIndex: 0,
+								index: barIndex
+							}]);
 							chartInstance.update('none');
 						}
 					}
@@ -1670,20 +1804,20 @@
 	});
 </script>
 
-<div class="bg-gradient-to-br from-white via-white to-teal-50/30 rounded-2xl shadow-floating border border-teal-200/30 backdrop-blur-sm">
+<div class="bg-white rounded-2xl border border-neutral-200">
 	<div class="relative">
 		<!-- Header -->
-		<div class="px-6 py-5 border-b border-teal-200/40 bg-gradient-to-r from-white via-teal-50/20 to-white rounded-t-2xl">
+		<div class="px-6 py-5 border-b border-neutral-200 bg-white rounded-t-2xl">
 			<div class="flex items-center justify-between">
 				<div class="flex items-center space-x-3">
-					<div class="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center shadow-elegant">
-						<svg class="w-5 h-5 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<div class="w-10 h-10 rounded-xl bg-teal-700 flex items-center justify-center">
+						<svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
 						</svg>
 					</div>
 					<div>
-						<h3 class="text-xl font-bold text-teal-900">Chart Selector</h3>
-						<p class="text-sm text-teal-700 mt-0.5">
+						<h3 class="text-xl font-bold text-neutral-900">Chart Selector</h3>
+						<p class="text-sm text-neutral-600 mt-0.5">
 							{#if selectedChartType}
 								Creating a {chartOptions.find(opt => opt.id === selectedChartType)?.useCase.toLowerCase()}
 							{:else if $isAnalysisReady || selectedChartType === 'pie'}
@@ -1735,13 +1869,13 @@
 			<!-- Selection prompt -->
 			{#if !$isAnalysisReady && selectedChartType !== 'pie' && !isLoading}
 				<div class="p-12 text-center">
-					<div class="w-20 h-20 bg-gradient-to-br from-teal-100 to-teal-200 rounded-3xl mx-auto mb-8 flex items-center justify-center shadow-elegant">
-						<svg class="w-10 h-10 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<div class="w-20 h-20 bg-teal-700 rounded-3xl mx-auto mb-8 flex items-center justify-center">
+						<svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4"/>
 						</svg>
 					</div>
-					<h4 class="text-2xl font-bold text-teal-900 mb-4">Configure Your Analysis</h4>
-					<p class="text-teal-700 text-lg mb-8 max-w-md mx-auto leading-relaxed">
+					<h4 class="text-2xl font-bold text-neutral-900 mb-4">Configure Your Analysis</h4>
+					<p class="text-neutral-600 text-lg mb-8 max-w-md mx-auto leading-relaxed">
 						Select indicators, geography level, and years to view the data table.
 					</p>
 					<Button
@@ -1764,27 +1898,27 @@
 					<div class="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6 max-w-4xl mx-auto">
 						{#each chartOptions as option}
 							<button
-								class="p-4 md:p-6 bg-white/80 backdrop-blur-sm border border-teal-200/60 rounded-xl hover:bg-white hover:shadow-luxury hover:border-teal-300 transition-all duration-300 text-left group {option.disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} shadow-elegant"
+								class="p-4 md:p-6 bg-white border border-neutral-200 rounded-xl hover:bg-neutral-50 hover:border-neutral-300 transition-all duration-300 text-left group {option.disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}"
 								on:click={() => !option.disabled && selectChartType(option.id)}
 								disabled={option.disabled}
 							>
 								<div class="flex items-start space-x-3 md:space-x-4">
-									<div class="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center shadow-elegant group-hover:shadow-luxury transition-all duration-300 flex-shrink-0">
-										<svg class="w-5 h-5 md:w-6 md:h-6 text-teal-700" fill="currentColor" viewBox="0 0 24 24">
+									<div class="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-teal-700 flex items-center justify-center flex-shrink-0">
+										<svg class="w-5 h-5 md:w-6 md:h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
 											<path d="{option.icon}"/>
 										</svg>
 									</div>
 									<div class="flex-1 min-w-0">
-										<h5 class="text-base md:text-lg font-bold text-teal-900 mb-1 md:mb-2 group-hover:text-teal-800">
+										<h5 class="text-base md:text-lg font-bold text-neutral-900 mb-1 md:mb-2 group-hover:text-neutral-800">
 											{option.title}
 										</h5>
-										<p class="text-xs md:text-sm text-teal-700 mb-2 md:mb-3 leading-relaxed line-clamp-2">
+										<p class="text-xs md:text-sm text-neutral-600 mb-2 md:mb-3 leading-relaxed line-clamp-2">
 											{option.description}
 										</p>
-										<div class="inline-flex items-center text-xs md:text-sm font-semibold text-teal-600 bg-gradient-to-r from-teal-100 to-teal-200 px-2 md:px-3 py-1 md:py-1.5 rounded-full border border-teal-300/50">
+										<div class="inline-flex items-center text-xs md:text-sm font-semibold text-teal-800 bg-teal-50 px-2 md:px-3 py-1 md:py-1.5 rounded-full border-2 border-teal-700">
 											<span class="truncate">{option.useCase}</span>
 											{#if !option.disabled}
-												<svg class="w-3 h-3 md:w-4 md:h-4 ml-1 md:ml-2 group-hover:translate-x-1 transition-transform flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<svg class="w-3 h-3 md:w-4 md:h-4 ml-1 md:ml-2 group-hover:tranneutral-x-1 transition-transform flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
 												</svg>
 											{/if}
@@ -1800,15 +1934,16 @@
 			<!-- Chart configuration -->
 			{#if (selectedChartType === 'pie' || $isAnalysisReady) && selectedChartType}
 				<div class="p-4 md:p-6">
-					<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-8">
+					<div class="grid grid-cols-1 {isExpanded ? '' : 'lg:grid-cols-3'} gap-4 md:gap-8">
 						<!-- Configuration Panel -->
-						<div class="lg:col-span-1">
+						{#if !isExpanded}
+						<div class="lg:col-span-1" transition:slide={{ duration: 400, easing: quintOut }}>
 							<Card variant="outline">
 								<div class="p-4">
-									<h4 class="text-lg font-semibold text-gray-900 mb-3">
+									<h4 class="text-lg font-semibold text-neutral-900 mb-3">
 										Chart Elements
 									</h4>
-									<p class="text-sm text-gray-600 mb-6">
+									<p class="text-sm text-neutral-600 mb-6">
 										{getChartInstructions(selectedChartType)}
 									</p>
 									
@@ -1816,20 +1951,20 @@
 										<!-- Pie Chart Type Selection -->
 										{#if selectedChartType === 'pie'}
 											<div>
-												<label class="block text-sm font-medium text-gray-700 mb-2">
+												<label class="block text-sm font-medium text-neutral-700 mb-2">
 													Pie Chart Type
 												</label>
 												<select
 													bind:value={selectedPieChartType}
 													on:change={handleConfigChange}
-													class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
+													class="block w-full px-3 py-2 border border-neutral-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
 												>
-													<option value="">Select breakdown type...</option>
+													<option value="">Select breakdown type</option>
 													<option value="revenue">Per Pupil Revenue Breakdown</option>
 													<option value="student_demographics">Student Demographics Breakdown</option>
 													<option value="community_demographics">Community Demographics Breakdown</option>
 												</select>
-												<p class="text-xs text-gray-500 mt-1">
+												<p class="text-xs text-neutral-500 mt-1">
 													{#if selectedPieChartType === 'revenue'}
 														Shows federal, state, and local revenue per pupil
 													{:else if selectedPieChartType === 'student_demographics'}
@@ -1846,7 +1981,7 @@
 										<!-- Geographic Unit Selection for Line, Bar, and Pie Charts -->
 										{#if (selectedChartType === 'line' || selectedChartType === 'bar' || selectedChartType === 'pie') && availableGeoUnits.length > 0}
 											<div>
-												<label class="block text-sm font-medium text-gray-700 mb-2">
+												<label class="block text-sm font-medium text-neutral-700 mb-2">
 													Geographic Units {selectedChartType === 'pie' ? '(Optional)' : 'to Display'}
 												</label>
 												<GeographicUnitSelector
@@ -1855,9 +1990,9 @@
 													on:change={handleConfigChange}
 													placeholder="Search geographic units..."
 												/>
-												<p class="text-xs text-gray-500 mt-1">
+												<p class="text-xs text-neutral-500 mt-1">
 													{#if selectedChartType === 'pie'}
-														Leave empty to aggregate all {getGeoLevelDisplayName($currentGeoLevel) || 'counties'}, or select specific ones
+														Leave empty to aggregate every {getGeoLevelSingularName($currentGeoLevel) || 'county'}, or select specific ones
 													{:else if selectedChartType === 'line'}
 														Select which {getGeoLevelDisplayName($currentGeoLevel)} to show as separate lines on the chart
 													{:else if selectedChartType === 'bar'}
@@ -1866,17 +2001,35 @@
 												</p>
 											</div>
 										{/if}
-										
+
+										<!-- Bar Chart Options -->
+										{#if selectedChartType === 'bar'}
+											<div>
+												<label class="flex items-center">
+													<input
+														type="checkbox"
+														bind:checked={hideBarLabels}
+														on:change={handleConfigChange}
+														class="h-4 w-4 text-teal-600 focus:ring-teal-500 border-neutral-300 rounded"
+													/>
+													<span class="ml-2 text-sm text-neutral-700">Hide unit name labels</span>
+												</label>
+												<p class="text-xs text-neutral-500 mt-1">
+													Remove geographic unit names from the x-axis
+												</p>
+											</div>
+										{/if}
+
 										<!-- X-Axis Variable (only shown for scatter charts) -->
 										{#if selectedChartType === 'scatter'}
 											<div>
-												<label class="block text-sm font-medium text-gray-700 mb-2">
+												<label class="block text-sm font-medium text-neutral-700 mb-2">
 													X-Axis Variable
 												</label>
 												<select
 													bind:value={xAxisVariable}
 													on:change={handleConfigChange}
-													class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
+													class="block w-full px-3 py-2 border border-neutral-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
 												>
 													<option value="">Select variable...</option>
 													{#each availableVariables as variable}
@@ -1889,13 +2042,13 @@
 										<!-- Y-Axis Variable (hidden for pie charts since they use predefined indicators) -->
 										{#if selectedChartType !== 'pie'}
 											<div>
-												<label class="block text-sm font-medium text-gray-700 mb-2">
+												<label class="block text-sm font-medium text-neutral-700 mb-2">
 													Y-Axis Variable
 												</label>
 												<select
 													bind:value={yAxisVariable}
 													on:change={handleConfigChange}
-													class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
+													class="block w-full px-3 py-2 border border-neutral-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
 												>
 													<option value="">Select variable...</option>
 													{#each availableVariables as variable}
@@ -1908,7 +2061,7 @@
 										<!-- Year Selection for Line Charts -->
 										{#if selectedChartType === 'line'}
 											<div>
-												<label class="block text-sm font-medium text-gray-700 mb-2">
+												<label class="block text-sm font-medium text-neutral-700 mb-2">
 													Years to Display
 												</label>
 												<YearSelector
@@ -1917,7 +2070,7 @@
 													placeholder="Select years for chart..."
 													on:change={(event) => setYears(event.detail.selectedYears)}
 												/>
-												<p class="text-xs text-gray-500 mt-1">
+												<p class="text-xs text-neutral-500 mt-1">
 													Line charts will show trends across the selected years
 												</p>
 											</div>
@@ -1927,19 +2080,19 @@
 										{#if selectedChartType === 'scatter'}
 											<!-- Toggle between Color By and Size By -->
 											<div>
-												<label class="block text-sm font-medium text-gray-700 mb-3">
+												<label class="block text-sm font-medium text-neutral-700 mb-3">
 													Third Variable Mode
 												</label>
-												<div class="flex space-x-4 mb-3">
+												<div class="flex flex-wrap gap-3 mb-3">
 													<label class="flex items-center">
 														<input
 															type="radio"
 															bind:group={thirdVariableMode}
 															value="color"
 															on:change={handleConfigChange}
-															class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+															class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-neutral-300"
 														/>
-														<span class="ml-2 text-sm text-gray-700">Color by variable</span>
+														<span class="ml-2 text-sm text-neutral-700">Color by variable</span>
 													</label>
 													<label class="flex items-center">
 														<input
@@ -1947,36 +2100,50 @@
 															bind:group={thirdVariableMode}
 															value="size"
 															on:change={handleConfigChange}
-															class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+															class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-neutral-300"
 														/>
-														<span class="ml-2 text-sm text-gray-700">Size by variable</span>
+														<span class="ml-2 text-sm text-neutral-700">Size by variable</span>
+													</label>
+													<label class="flex items-center">
+														<input
+															type="radio"
+															bind:group={thirdVariableMode}
+															value="state"
+															on:change={handleConfigChange}
+															class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-neutral-300"
+														/>
+														<span class="ml-2 text-sm text-neutral-700">Color by state</span>
 													</label>
 												</div>
-												<p class="text-xs text-gray-500 mb-3">
+												<p class="text-xs text-neutral-500 mb-3">
 													{#if thirdVariableMode === 'color'}
 														Points will be colored based on the selected variable's values
+													{:else if thirdVariableMode === 'state'}
+														Each state gets a distinct color
 													{:else}
 														Point sizes will vary based on the selected variable's values
 													{/if}
 												</p>
 											</div>
 
-											<!-- Third Variable Selector -->
-											<div>
-												<label class="block text-sm font-medium text-gray-700 mb-2">
-													{thirdVariableMode === 'color' ? 'Color By' : 'Size By'} (Optional)
-												</label>
-												<select
-													bind:value={thirdVariable}
-													on:change={handleConfigChange}
-													class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
-												>
-													<option value="">No {thirdVariableMode === 'color' ? 'color grouping' : 'size variation'}</option>
-													{#each availableVariables as variable}
-														<option value={variable}>{getIndicatorDisplayName(variable)}</option>
-													{/each}
-												</select>
-											</div>
+											<!-- Third Variable Selector (hidden when coloring by state) -->
+											{#if thirdVariableMode !== 'state'}
+												<div>
+													<label class="block text-sm font-medium text-neutral-700 mb-2">
+														{thirdVariableMode === 'color' ? 'Color By' : 'Size By'} (Optional)
+													</label>
+													<select
+														bind:value={thirdVariable}
+														on:change={handleConfigChange}
+														class="block w-full px-3 py-2 border border-neutral-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
+													>
+														<option value="">No {thirdVariableMode === 'color' ? 'color grouping' : 'size variation'}</option>
+														{#each availableVariables as variable}
+															<option value={variable}>{getIndicatorDisplayName(variable)}</option>
+														{/each}
+													</select>
+												</div>
+											{/if}
 
 											<!-- Trend Line Toggle -->
 											<div>
@@ -1985,11 +2152,11 @@
 														type="checkbox"
 														bind:checked={showTrendLine}
 														on:change={handleConfigChange}
-														class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+														class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-neutral-300 rounded"
 													/>
-													<span class="ml-2 text-sm font-medium text-gray-700">Show Trend Line</span>
+													<span class="ml-2 text-sm font-medium text-neutral-700">Show Trend Line</span>
 												</label>
-												<p class="text-xs text-gray-500 mt-1">
+												<p class="text-xs text-neutral-500 mt-1">
 													Displays a linear regression line showing the relationship between variables
 												</p>
 											</div>
@@ -1998,13 +2165,13 @@
 										<!-- Year Selection -->
 										{#if selectedChartType !== 'line'}
 											<div>
-												<label class="block text-sm font-medium text-gray-700 mb-2">
+												<label class="block text-sm font-medium text-neutral-700 mb-2">
 													Year
 												</label>
 												<select
 													bind:value={selectedYear}
 													on:change={handleConfigChange}
-													class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
+													class="block w-full px-3 py-2 border border-neutral-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
 												>
 													<option value={null}>Select year...</option>
 													{#each availableYears as year}
@@ -2029,20 +2196,40 @@
 								</div>
 							</Card>
 						</div>
-						
+						{/if}
+
 						<!-- Chart Display Area -->
-						<div class="lg:col-span-2">
+						<div class="{isExpanded ? '' : 'lg:col-span-2'}">
 							<Card variant="outline">
 								<div class="p-4">
-									<h4 class="text-lg font-semibold text-gray-900 mb-4">
+								<div class="flex items-center justify-between mb-4">
+									<h4 class="text-lg font-semibold text-neutral-900">
 										{chartOptions.find(opt => opt.id === selectedChartType)?.useCase}
 									</h4>
-									
+									<Button
+										variant="outline"
+										size="sm"
+										on:click={toggleExpanded}
+									>
+										{#if isExpanded}
+											<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 9V4.5M9 9H4.5M9 9L3.5 3.5M15 9h4.5M15 9V4.5M15 9l5.5-5.5M9 15v4.5M9 15H4.5M9 15l-5.5 5.5M15 15h4.5M15 15v4.5m0-4.5l5.5 5.5" />
+											</svg>
+											Collapse
+										{:else}
+											<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+											</svg>
+											Expand
+										{/if}
+									</Button>
+								</div>
+
 									{#if !isChartConfigValid()}
-										<div class="h-64 flex items-center justify-center bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+										<div class="h-64 flex items-center justify-center bg-neutral-50 rounded-lg border-2 border-dashed border-neutral-300">
 											<div class="text-center">
-												<div class="w-12 h-12 bg-gradient-to-br from-teal-100 to-teal-200 rounded-xl mx-auto mb-4 flex items-center justify-center shadow-elegant">
-													<svg class="w-6 h-6 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<div class="w-12 h-12 bg-teal-700 rounded-xl mx-auto mb-4 flex items-center justify-center">
+													<svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 														{#if selectedChartType === 'bar'}
 															<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
 														{:else if selectedChartType === 'scatter'}
@@ -2056,7 +2243,7 @@
 														{/if}
 													</svg>
 												</div>
-												<p class="text-teal-900 font-semibold text-sm mb-2">
+												<p class="text-neutral-900 font-semibold text-sm mb-2">
 													{#if selectedChartType === 'bar'}
 														Configure Bar Chart Settings
 													{:else if selectedChartType === 'scatter'}
@@ -2069,7 +2256,7 @@
 														Configure Chart Settings
 													{/if}
 												</p>
-												<p class="text-teal-700 text-sm">
+												<p class="text-neutral-600 text-sm">
 													{#if selectedChartType === 'bar'}
 														Select a variable and year to compare values across geographies
 													{:else if selectedChartType === 'scatter'}
@@ -2085,38 +2272,38 @@
 											</div>
 										</div>
 									{:else if (selectedChartType === 'line' || selectedChartType === 'bar') && selectedGeoUnits.length === 0 && availableGeoUnits.length > 0}
-										<div class="h-64 flex items-center justify-center bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+										<div class="h-64 flex items-center justify-center bg-neutral-50 rounded-lg border-2 border-dashed border-neutral-300">
 											<div class="text-center">
-												<div class="w-12 h-12 mx-auto mb-4 rounded-xl bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center shadow-elegant">
-													<svg class="w-6 h-6 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<div class="w-12 h-12 mx-auto mb-4 rounded-xl bg-teal-700 flex items-center justify-center">
+													<svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
 														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
 													</svg>
 												</div>
-												<p class="text-gray-600 text-sm mb-2">
+												<p class="text-neutral-600 text-sm mb-2">
 													{#if selectedChartType === 'line'}
 														Select geographic units from the panel to display trend lines
 													{:else if selectedChartType === 'bar'}
 														Select geographic units from the panel to include in the bar chart
 													{/if}
 												</p>
-												<p class="text-gray-500 text-xs">
+												<p class="text-neutral-500 text-xs">
 													Use the "Geographic Units to Display" selector in the configuration panel
 												</p>
 											</div>
 										</div>
 									{:else if !isLoading && isChartConfigValid() && chartData.length === 0}
-										<div class="h-64 flex items-center justify-center bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+										<div class="h-64 flex items-center justify-center bg-neutral-50 rounded-lg border-2 border-dashed border-neutral-300">
 											<div class="text-center">
-												<div class="w-12 h-12 bg-gradient-to-br from-teal-100 to-teal-200 rounded-xl mx-auto mb-4 flex items-center justify-center shadow-elegant">
-													<svg class="w-6 h-6 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<div class="w-12 h-12 bg-teal-700 rounded-xl mx-auto mb-4 flex items-center justify-center">
+													<svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
 													</svg>
 												</div>
-												<p class="text-teal-900 font-semibold text-sm mb-2">
+												<p class="text-neutral-900 font-semibold text-sm mb-2">
 													No Data Available
 												</p>
-												<p class="text-teal-700 text-sm max-w-sm mx-auto">
+												<p class="text-neutral-600 text-sm max-w-sm mx-auto">
 													{#if selectedChartType === 'bar'}
 														No data found for the selected variable and year in the chosen geographic units
 													{:else if selectedChartType === 'scatter'}
@@ -2132,10 +2319,10 @@
 											</div>
 										</div>
 									{:else if chartData.length > 0}
-										<!-- Search Bar for Scatter Plot -->
-										{#if selectedChartType === 'scatter' && availableGeoUnitsForSearch.length > 0}
+										<!-- Search Bar for Scatter Plot and Bar Chart -->
+										{#if (selectedChartType === 'scatter' || selectedChartType === 'bar') && availableGeoUnitsForSearch.length > 0}
 											<div class="mb-4">
-												<label class="block text-sm font-medium text-gray-700 mb-2">
+												<label class="block text-sm font-medium text-neutral-700 mb-2">
 													Search {$currentGeoLevel && $geographies[$currentGeoLevel] ? $geographies[$currentGeoLevel].name : 'Geographic Units'}
 												</label>
 												<div class="relative">
@@ -2144,7 +2331,7 @@
 														bind:value={searchTerm}
 														on:input={handleSearch}
 														placeholder="Search for a geographic unit..."
-														class="block w-full px-3 py-2 pr-10 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
+														class="block w-full px-3 py-2 pr-10 border border-neutral-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
 													/>
 													{#if searchTerm}
 														<button
@@ -2152,7 +2339,7 @@
 															on:click={clearSearch}
 															class="absolute inset-y-0 right-0 pr-3 flex items-center"
 														>
-															<svg class="h-4 w-4 text-gray-400 hover:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+															<svg class="h-4 w-4 text-neutral-400 hover:text-neutral-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 																<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
 															</svg>
 														</button>
@@ -2164,15 +2351,15 @@
 															{#each filteredSearchResults as unit}
 																<button
 																	type="button"
-																	class="w-full text-left px-3 py-2 hover:bg-gray-50 focus:bg-gray-50 focus:outline-none"
+																	class="w-full text-left px-3 py-2 hover:bg-neutral-50 focus:bg-neutral-50 focus:outline-none"
 																	on:click={() => {
 																		searchTerm = unit.geo_name;
 																		handleSearch();
 																	}}
 																>
 																	<div class="flex justify-between items-center">
-																		<span class="text-gray-900">{unit.geo_name}</span>
-																		<span class="text-xs text-gray-500">{unit.geo_id}</span>
+																		<span class="text-neutral-900">{unit.geo_name}</span>
+																		<span class="text-xs text-neutral-500">{unit.geo_id}</span>
 																	</div>
 																</button>
 															{/each}
@@ -2188,7 +2375,7 @@
 										{/if}
 										
 										<!-- Chart Canvas -->
-										<div class="relative h-64 sm:h-80 md:h-96 w-full">
+										<div class="relative w-full transition-all duration-500 ease-in-out {isExpanded ? 'h-[75vh]' : 'h-64 sm:h-80 md:h-96'}">
 											<!-- Loading overlay for chart area only -->
 											{#if isLoading}
 												<div 
@@ -2220,7 +2407,7 @@
 											<div class="mt-4 flex justify-between items-center">
 												<!-- Zoom Instructions for Scatter Plot -->
 												{#if selectedChartType === 'scatter'}
-													<div class="text-xs text-gray-500">
+													<div class="text-xs text-neutral-500">
 														<p class="mb-1">🖱️ <strong>Mouse wheel:</strong> Zoom in/out</p>
 														<p>🖱️ <strong>Click & drag:</strong> Move the chart window</p>
 													</div>

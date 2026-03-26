@@ -51,6 +51,9 @@ class TableDataRequest(BaseModel):
     indicator_ids: List[str]
     years: List[int]
     geo_level: Optional[str] = None  # Add geo_level to filter by geographic level
+    page: Optional[int] = None       # 1-based page number; omit for all rows (CSV export)
+    page_size: Optional[int] = 100   # Rows per page
+    search: Optional[str] = None     # Search filter on geo_name
 
 # The response for table data is a list of dictionaries, which can be
 # represented in Python as List[Dict[str, Any]]. We don't need a rigid
@@ -75,7 +78,7 @@ class GeometriesResponse(BaseModel):
 
 class IndicatorDataItem(BaseModel):
     geo_id: str
-    geo_name: str
+    geo_name: Optional[str] = None
     value: Optional[float]
     bin: int
 

@@ -8,7 +8,7 @@ import { latestYear, indicators, geographies, type IndicatorMetadata } from './m
 export interface UnifiedFilterState {
 	// Geographic context (applies to all views)
 	geoLevel: string | null;
-	geoFilter: string | null; // specific state/county when needed
+	geoFilter: string[]; // selected state FIPS codes (empty = all states)
 	
 	// Temporal context
 	years: number[]; // Support both single year and ranges
@@ -29,7 +29,7 @@ export interface UnifiedFilterState {
 // Default values
 const DEFAULT_UNIFIED_FILTERS: UnifiedFilterState = {
 	geoLevel: 'county',
-	geoFilter: null,
+	geoFilter: [],
 	years: [2022],
 	primaryYear: 2022,
 	primaryIndicator: null, // No default indicator - only show selected variables
@@ -48,7 +48,8 @@ const filtersInitialized: Writable<boolean> = writable(false);
  */
 function parseUrlParams(searchParams: URLSearchParams): Partial<UnifiedFilterState> {
 	const geoLevel = searchParams.get('geoLevel') || searchParams.get('geo_level');
-	const geoFilter = searchParams.get('geoFilter') || searchParams.get('geo_filter');
+	const geoFilterParam = searchParams.get('geoFilter') || searchParams.get('geo_filter');
+	const geoFilter = geoFilterParam ? geoFilterParam.split(',').filter(s => s) : [];
 	const primaryIndicator = searchParams.get('indicator');
 	const yearParam = searchParams.get('year');
 	const yearsParam = searchParams.get('years');
@@ -78,8 +79,8 @@ function filtersToUrlParams(filters: UnifiedFilterState): URLSearchParams {
 		params.set('geoLevel', filters.geoLevel);
 	}
 	
-	if (filters.geoFilter) {
-		params.set('geoFilter', filters.geoFilter);
+	if (filters.geoFilter.length > 0) {
+		params.set('geoFilter', filters.geoFilter.join(','));
 	}
 	
 	if (filters.primaryIndicator) {
@@ -395,7 +396,7 @@ const unifiedFilters: Readable<UnifiedFilterState> = derived(
 
 // Derived stores for individual filter values
 const currentGeoLevel: Readable<string | null> = derived(unifiedFilters, ($filters) => $filters.geoLevel);
-const currentGeoFilter: Readable<string | null> = derived(unifiedFilters, ($filters) => $filters.geoFilter);
+const currentGeoFilter: Readable<string[]> = derived(unifiedFilters, ($filters) => $filters.geoFilter);
 const currentPrimaryIndicator: Readable<string | null> = derived(unifiedFilters, ($filters) => $filters.primaryIndicator);
 const currentPrimaryYear: Readable<number | null> = derived(unifiedFilters, ($filters) => $filters.primaryYear);
 const currentYears: Readable<number[]> = derived(unifiedFilters, ($filters) => $filters.years);

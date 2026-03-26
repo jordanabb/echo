@@ -14,10 +14,10 @@
 	};
 
 	const colorClasses = {
-		primary: 'text-teal-600 border-teal-600',
-		teal: 'text-teal-500 border-teal-500',
+		primary: 'text-teal-700 border-teal-700',
+		teal: 'text-teal-700 border-teal-700',
 		white: 'text-white border-white',
-		slate: 'text-slate-600 border-slate-600'
+		slate: 'text-neutral-600 border-neutral-600'
 	};
 
 	const textSizeClasses = {
@@ -40,7 +40,7 @@
 					<svelte:self {variant} {size} {color} />
 				</div>
 				{#if text}
-					<p class="text-slate-700 font-medium {textSize}">{text}</p>
+					<p class="text-neutral-700 font-medium {textSize}">{text}</p>
 				{/if}
 			</div>
 		</div>
@@ -48,7 +48,7 @@
 {:else}
 	<div class="flex items-center justify-center {className}">
 		{#if variant === 'default'}
-			<div class="{spinnerSize} border-4 border-slate-200 border-t-current rounded-full animate-spin {spinnerColor}"></div>
+			<div class="{spinnerSize} border-4 border-neutral-200 border-t-current rounded-full animate-spin {spinnerColor}"></div>
 		
 		{:else if variant === 'dots'}
 			<div class="flex space-x-1">
@@ -75,7 +75,7 @@
 		
 		{:else if variant === 'ring'}
 			<div class="relative {spinnerSize}">
-				<div class="absolute inset-0 border-4 border-slate-200 rounded-full"></div>
+				<div class="absolute inset-0 border-4 border-neutral-200 rounded-full"></div>
 				<div class="absolute inset-0 border-4 border-transparent border-t-current rounded-full animate-spin {spinnerColor}"></div>
 				<div class="absolute inset-2 border-2 border-transparent border-t-current rounded-full animate-spin {spinnerColor}" style="animation-direction: reverse; animation-duration: 0.75s;"></div>
 			</div>

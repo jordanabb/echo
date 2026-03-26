@@ -34,6 +34,14 @@
 	let sortColumn: string | null = null;
 	let sortDirection: 'asc' | 'desc' = 'asc';
 	let searchTerm = '';
+
+	// Pagination state
+	let currentPage = 1;
+	let pageSize = 100;
+	let totalRows = 0;
+	$: startRow = (currentPage - 1) * pageSize + 1;
+	$: endRow = Math.min(currentPage * pageSize, totalRows);
+	$: totalPages = Math.ceil(totalRows / pageSize);
 	
 	// Crossfade transition for smooth updates
 	const [send, receive] = crossfade({
@@ -52,71 +60,74 @@
 		debounceTimer = setTimeout(callback, delay);
 	}
 	
-	// Function to fetch all geo_ids for a given geography level and year
-	async function fetchGeoIds(geoLevel: string, year: number, stateFilter?: string | null): Promise<string[]> {
+	// Function to fetch geo_ids using the lightweight endpoint (no geometry data)
+	async function fetchGeoIds(geoLevel: string, year: number, stateFilter?: string[]): Promise<string[]> {
 		try {
 			const params = new URLSearchParams({
 				geo_level: geoLevel,
 				year: year.toString()
 			});
-			
-			// Add state filter if provided
-			if (stateFilter) {
-				params.set('state_filter', stateFilter);
-				console.log('DataTable: Adding state filter:', stateFilter);
+			if (stateFilter && stateFilter.length > 0) {
+				params.set('state_filter', stateFilter.join(','));
 			}
-			
-			console.log('DataTable: Fetching geo_ids with URL:', `/api/geometries?${params}`);
-			// Use the geometries endpoint which properly filters by geo_level
-			const response = await fetch(`/api/geometries?${params}`);
-			
+			const response = await fetch(`/api/geo-ids?${params}`);
 			if (!response.ok) {
 				throw new Error(`Failed to fetch geo_ids: ${response.statusText}`);
 			}
-			
-			const data = await response.json();
-			
-			// Extract geo_ids from the response - geometries endpoint ensures proper geo_level filtering
-			return data.geoJson?.features?.map((feature: any) => feature.properties?.geo_id) || [];
+			return await response.json();
 		} catch (err) {
 			console.error('Error fetching geo_ids:', err);
 			return [];
 		}
 	}
 	
+	// Cached geo_ids to avoid re-fetching on page changes
+	let cachedGeoIds: string[] = [];
+	let cachedGeoKey = '';
+
+	async function getGeoIds(): Promise<string[]> {
+		const key = `${$currentGeoLevel}-${($currentGeoFilter || []).join(',')}-${$currentYears.join(',')}`;
+		if (key === cachedGeoKey && cachedGeoIds.length > 0) {
+			return cachedGeoIds;
+		}
+
+		const allGeoIds = new Set<string>();
+		for (const year of $currentYears) {
+			const yearGeoIds = await fetchGeoIds($currentGeoLevel, year, $currentGeoFilter);
+			yearGeoIds.forEach(id => allGeoIds.add(id));
+		}
+
+		cachedGeoIds = Array.from(allGeoIds);
+		cachedGeoKey = key;
+		return cachedGeoIds;
+	}
+
 	// Function to fetch table data from API
-	async function fetchTableData() {
+	async function fetchTableData(page?: number) {
 		if (!$isAnalysisReady || !$currentGeoLevel) {
 			return;
 		}
-		
+
 		isLoading = true;
 		error = null;
-		
+
 		try {
-			// First, get all geo_ids for the selected geography level and years
-			const allGeoIds = new Set<string>();
-			
-			// Fetch geo_ids for each year (in case different years have different geographies)
-			for (const year of $currentYears) {
-				const yearGeoIds = await fetchGeoIds($currentGeoLevel, year, $currentGeoFilter);
-				yearGeoIds.forEach(id => allGeoIds.add(id));
-			}
-			
-			if (allGeoIds.size === 0) {
+			const geoIds = await getGeoIds();
+
+			if (geoIds.length === 0) {
 				throw new Error('No geographic areas found for the selected filters');
 			}
-			
-			// Prepare the request payload with geo_level to ensure proper filtering
-			const requestPayload = {
-				geo_ids: Array.from(allGeoIds),
+
+			const requestPayload: any = {
+				geo_ids: geoIds,
 				indicator_ids: $currentSelectedIndicators,
 				years: $currentYears,
-				geo_level: $currentGeoLevel  // Add geo_level to filter out mixed geographic levels
+				geo_level: $currentGeoLevel,
+				page: page ?? currentPage,
+				page_size: pageSize,
+				...(searchTerm.trim() ? { search: searchTerm.trim() } : {})
 			};
-			
-			console.log('Fetching table data with payload:', requestPayload);
-			
+
 			const response = await fetch('/api/table-data', {
 				method: 'POST',
 				headers: {
@@ -124,35 +135,26 @@
 				},
 				body: JSON.stringify(requestPayload)
 			});
-			
+
 			if (!response.ok) {
 				throw new Error(`HTTP ${response.status}: ${response.statusText}`);
 			}
-			
-			const data = await response.json();
-			
-			if (!Array.isArray(data) || data.length === 0) {
-				// No data available
+
+			const result = await response.json();
+			const data = result.data || [];
+			totalRows = result.total || 0;
+
+			if (data.length === 0) {
 				tableData = [];
 				filteredData = [];
 				columns = [];
 				return;
 			}
-			
-			// Extract column names from the first row
-			const firstRow = data[0];
-			columns = Object.keys(firstRow);
-			
-			// Store the data
+
+			columns = Object.keys(data[0]);
 			tableData = data;
 			filteredData = data;
-			
-			console.log('Table data received:', {
-				rows: data.length,
-				columns: columns.length,
-				sampleRow: firstRow
-			});
-			
+
 		} catch (err) {
 			console.error('Error fetching table data:', err);
 			error = err instanceof Error ? err.message : 'Failed to load table data';
@@ -162,6 +164,12 @@
 		} finally {
 			isLoading = false;
 		}
+	}
+
+	function goToPage(page: number) {
+		const maxPage = Math.max(1, Math.ceil(totalRows / pageSize));
+		currentPage = Math.max(1, Math.min(page, maxPage));
+		fetchTableData(currentPage);
 	}
 	
 	// Function to handle sorting
@@ -176,109 +184,125 @@
 		}
 		
 		// Apply sorting
-		applySortingAndFiltering();
+		applySorting();
 	}
 	
-	// Function to apply sorting and filtering
-	function applySortingAndFiltering() {
+	// Function to apply sorting (search is now server-side)
+	function applySorting() {
 		let result = [...tableData];
-		
-		// Apply search filter
-		if (searchTerm.trim()) {
-			const searchLower = searchTerm.toLowerCase();
-			result = result.filter(row => {
-				// Search in geo_name primarily, but also other string fields
-				const geoName = String(row.geo_name || '').toLowerCase();
-				const geoId = String(row.geo_id || '').toLowerCase();
-				return geoName.includes(searchLower) || geoId.includes(searchLower);
-			});
-		}
-		
-		// Apply sorting
+
 		if (sortColumn) {
 			result.sort((a, b) => {
 				const aVal = a[sortColumn];
 				const bVal = b[sortColumn];
-				
-				// Handle null/undefined values
+
 				if (aVal == null && bVal == null) return 0;
 				if (aVal == null) return sortDirection === 'asc' ? 1 : -1;
 				if (bVal == null) return sortDirection === 'asc' ? -1 : 1;
-				
-				// Compare values
+
 				let comparison = 0;
 				if (typeof aVal === 'number' && typeof bVal === 'number') {
 					comparison = aVal - bVal;
 				} else {
 					comparison = String(aVal).localeCompare(String(bVal));
 				}
-				
+
 				return sortDirection === 'asc' ? comparison : -comparison;
 			});
 		}
-		
+
 		filteredData = result;
 	}
 	
-	// Function to export data to CSV
-	function exportToCSV() {
-		if (filteredData.length === 0) return;
-		
-		// Create CSV content
-		const headers = columns.map(col => getColumnDisplayName(col));
-		const csvContent = [
-			headers.join(','),
-			...filteredData.map(row => 
-				columns.map(col => {
-					const value = row[col];
-					if (value == null) return '';
-					
-					// Escape quotes and wrap in quotes if contains comma or quote
-					const stringValue = String(value);
-					if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
-						return `"${stringValue.replace(/"/g, '""')}"`;
-					}
-					return stringValue;
-				}).join(',')
-			)
-		].join('\n');
-		
-		// Create and trigger download
-		const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-		const link = document.createElement('a');
-		const url = URL.createObjectURL(blob);
-		link.setAttribute('href', url);
-		link.setAttribute('download', `data-export-${new Date().toISOString().split('T')[0]}.csv`);
-		link.style.visibility = 'hidden';
-		document.body.appendChild(link);
-		link.click();
-		document.body.removeChild(link);
-		URL.revokeObjectURL(url);
+	// Function to export data to CSV — fetches ALL rows (no pagination)
+	let isExporting = false;
+	async function exportToCSV() {
+		if (columns.length === 0) return;
+
+		isExporting = true;
+		try {
+			const geoIds = await getGeoIds();
+			const requestPayload = {
+				geo_ids: geoIds,
+				indicator_ids: $currentSelectedIndicators,
+				years: $currentYears,
+				geo_level: $currentGeoLevel
+				// No page param → backend returns all rows
+			};
+
+			const response = await fetch('/api/table-data', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(requestPayload)
+			});
+
+			if (!response.ok) throw new Error('Failed to fetch export data');
+
+			const result = await response.json();
+			const allData = result.data || [];
+			if (allData.length === 0) return;
+
+			const exportColumns = Object.keys(allData[0]);
+			const headers = exportColumns.map(col => getColumnDisplayName(col));
+			const csvContent = [
+				headers.join(','),
+				...allData.map((row: any) =>
+					exportColumns.map(col => {
+						const value = row[col];
+						if (value == null) return '';
+						const stringValue = String(value);
+						if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
+							return `"${stringValue.replace(/"/g, '""')}"`;
+						}
+						return stringValue;
+					}).join(',')
+				)
+			].join('\n');
+
+			const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+			const link = document.createElement('a');
+			const url = URL.createObjectURL(blob);
+			link.setAttribute('href', url);
+			link.setAttribute('download', `data-export-${new Date().toISOString().split('T')[0]}.csv`);
+			link.style.visibility = 'hidden';
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+			URL.revokeObjectURL(url);
+		} catch (err) {
+			console.error('CSV export error:', err);
+		} finally {
+			isExporting = false;
+		}
 	}
 	
-	// Reactive statement to apply filtering and sorting when data or search term changes
+	// Reactive statement to apply sorting when data changes
 	$: if (tableData.length > 0) {
-		applySortingAndFiltering();
+		applySorting();
+	}
+
+	// Reactive statement to search server-side when searchTerm changes
+	$: if (browser && $isAnalysisReady && searchTerm !== undefined) {
+		currentPage = 1;
+		debounceApiCall(() => fetchTableData(1), DEBOUNCE_DELAY);
 	}
 	
-	// Reactive statement to trigger filtering when searchTerm changes
-	$: if (tableData.length > 0 && searchTerm !== undefined) {
-		applySortingAndFiltering();
-	}
-	
-	// Reactive statement to fetch data when analysis filters change
+	// Reactive statement to fetch data when analysis filters change — reset to page 1
 	$: if (browser && $isAnalysisReady) {
-		debounceApiCall(fetchTableData, DEBOUNCE_DELAY);
+		currentPage = 1;
+		debounceApiCall(() => fetchTableData(1), DEBOUNCE_DELAY);
 	}
-	
+
 	// Additional reactive statements to ensure data updates when individual filters change
 	$: if (browser && $currentYears && $currentYears.length > 0 && $currentSelectedIndicators && $currentSelectedIndicators.length > 0 && $currentGeoLevel) {
-		debounceApiCall(fetchTableData, DEBOUNCE_DELAY);
+		currentPage = 1;
+		debounceApiCall(() => fetchTableData(1), DEBOUNCE_DELAY);
 	}
-	
+
 	// Reactive statement to refetch data when state filter changes
 	$: if (browser && $isAnalysisReady && $currentGeoFilter !== undefined) {
-		debounceApiCall(fetchTableData, DEBOUNCE_DELAY);
+		currentPage = 1;
+		debounceApiCall(() => fetchTableData(1), DEBOUNCE_DELAY);
 	}
 	
 	// Clean up debounce timer on component destroy
@@ -371,7 +395,7 @@
 				minWidth = 'min-w-[50px] w-[50px] md:min-w-[80px] md:w-[80px]';
 			}
 
-			return `${baseClasses} ${minWidth} sticky ${leftOffset} bg-white border-r border-gray-200 z-10`;
+			return `${baseClasses} ${minWidth} sticky ${leftOffset} bg-white border-r border-neutral-200 z-10`;
 		}
 
 		return baseClasses;
@@ -379,7 +403,7 @@
 
 	// Function to get header CSS classes
 	function getHeaderClasses(columnName: string): string {
-		const baseClasses = 'px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b border-gray-200';
+		const baseClasses = 'px-2 md:px-4 py-2 md:py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider border-b border-neutral-200';
 
 		if (isStickyColumn(columnName)) {
 			let leftOffset = 'left-0';
@@ -396,26 +420,26 @@
 				minWidth = 'min-w-[50px] w-[50px] md:min-w-[80px] md:w-[80px]';
 			}
 
-			return `${baseClasses} ${minWidth} sticky ${leftOffset} bg-gray-50 border-r border-gray-200 z-20`;
+			return `${baseClasses} ${minWidth} sticky ${leftOffset} bg-neutral-50 border-r border-neutral-200 z-20`;
 		}
 
-		return `${baseClasses} bg-gray-50`;
+		return `${baseClasses} bg-neutral-50`;
 	}
 </script>
 
 <div class="bg-gradient-to-br from-white via-white to-teal-50/30 rounded-2xl shadow-floating border border-teal-200/30 backdrop-blur-sm">
 	<div class="relative">
 		<!-- Header -->
-		<div class="px-4 md:px-6 py-4 md:py-5 border-b border-teal-200/40 bg-gradient-to-r from-white via-teal-50/20 to-white rounded-t-2xl">
+		<div class="px-4 md:px-6 py-4 md:py-5 border-b border-neutral-200 bg-white rounded-t-2xl">
 			<div class="flex items-center space-x-2 md:space-x-3">
-				<div class="w-8 h-8 md:w-10 md:h-10 rounded-xl bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center shadow-elegant flex-shrink-0">
-					<svg class="w-4 h-4 md:w-5 md:h-5 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				<div class="w-8 h-8 md:w-10 md:h-10 rounded-xl bg-teal-700 flex items-center justify-center flex-shrink-0">
+					<svg class="w-4 h-4 md:w-5 md:h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-4v8m-7 0V4a1 1 0 011-1h12a1 1 0 011 1v16a1 1 0 01-1 1H4a1 1 0 01-1-1z"/>
 					</svg>
 				</div>
 				<div>
-					<h3 class="text-xl font-bold text-teal-900">Data Table</h3>
-					<p class="text-sm text-teal-700 mt-0.5">
+					<h3 class="text-xl font-bold text-neutral-900">Data Table</h3>
+					<p class="text-sm text-neutral-600 mt-0.5">
 						{#if $isAnalysisReady}
 							Showing data for {$currentSelectedIndicators.length} indicator{$currentSelectedIndicators.length !== 1 ? 's' : ''} 
 							across {$currentYears.length} year{$currentYears.length !== 1 ? 's' : ''}
@@ -482,20 +506,20 @@
 						<div class="flex-1 w-full sm:max-w-md">
 							<div class="relative">
 								<div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-									<svg class="h-5 w-5 text-teal-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<svg class="h-5 w-5 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
 									</svg>
 								</div>
 								<input
 									type="text"
 									bind:value={searchTerm}
-									placeholder="Search by geography name..."
-									class="block w-full pl-12 pr-12 py-3 bg-white/80 backdrop-blur-sm border border-teal-200/60 rounded-xl text-sm placeholder-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 hover:bg-white hover:shadow-elegant transition-all duration-300 text-teal-800 font-medium"
+									placeholder="Search by geography name"
+									class="block w-full pl-12 pr-12 py-3 bg-white border border-neutral-200 rounded-xl text-sm placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-700 hover:border-neutral-300 transition-all duration-300 text-neutral-800 font-medium"
 								/>
 								{#if searchTerm}
 									<button
 										on:click={() => searchTerm = ''}
-										class="absolute inset-y-0 right-0 pr-4 flex items-center text-teal-400 hover:text-teal-600 transition-colors"
+										class="absolute inset-y-0 right-0 pr-4 flex items-center text-neutral-400 hover:text-neutral-600 transition-colors"
 									>
 										<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -511,25 +535,25 @@
 								variant="outline"
 								size="sm"
 								on:click={exportToCSV}
-								disabled={filteredData.length === 0}
+								disabled={totalRows === 0 || isExporting}
 							>
 								<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
 								</svg>
-								Export CSV
+								{isExporting ? 'Exporting...' : `Export CSV (${totalRows.toLocaleString()} rows)`}
 							</Button>
 						</div>
 					</div>
 				</div>
 				
 				<div class="overflow-x-auto max-h-96">
-					<table class="min-w-full divide-y divide-gray-200">
+					<table class="min-w-full divide-y divide-neutral-200">
 						<thead>
 							<tr>
 								{#each columns as column}
 									<th class={getHeaderClasses(column)}>
 										<button
-											class="flex items-center space-x-1 hover:text-gray-700 focus:outline-none focus:text-gray-700 transition-colors group"
+											class="flex items-center space-x-1 hover:text-neutral-700 focus:outline-none focus:text-neutral-700 transition-colors group"
 											on:click={() => handleSort(column)}
 										>
 											<span>{getColumnDisplayName(column)}</span>
@@ -553,12 +577,12 @@
 								{/each}
 							</tr>
 						</thead>
-						<tbody class="bg-white divide-y divide-gray-200">
+						<tbody class="bg-white divide-y divide-neutral-200">
 							{#each filteredData as row, rowIndex}
-								<tr class="hover:bg-gray-50 transition-colors">
+								<tr class="hover:bg-neutral-50 transition-colors">
 									{#each columns as column}
 										<td class={getColumnClasses(column)}>
-											<span class="text-sm text-gray-900">
+											<span class="text-sm text-neutral-900">
 												{formatCellValue(row[column], column)}
 											</span>
 										</td>
@@ -569,24 +593,74 @@
 					</table>
 				</div>
 				
-				<!-- Table footer with row count -->
-				<div class="px-6 py-4 border-t border-teal-200/40 bg-gradient-to-r from-white via-teal-50/20 to-white rounded-b-2xl">
-					<div class="flex items-center justify-between">
+				<!-- Table footer with pagination -->
+				<div class="px-4 md:px-6 py-3 md:py-4 border-t border-neutral-200 bg-white rounded-b-2xl">
+					<div class="flex flex-col sm:flex-row items-center justify-between gap-3">
 						<div class="flex items-center space-x-2">
-							<div class="w-2 h-2 bg-teal-600 rounded-full"></div>
-							<p class="text-sm font-medium text-teal-700">
-								{#if searchTerm || sortColumn}
-									Showing <strong class="text-teal-900">{filteredData.length}</strong> of <strong class="text-teal-900">{tableData.length}</strong> row{tableData.length !== 1 ? 's' : ''}
+							<div class="w-2 h-2 bg-teal-700 rounded-full"></div>
+							<p class="text-sm font-medium text-neutral-600">
+								{#if searchTerm}
+									Showing <strong class="text-neutral-900">{startRow.toLocaleString()}</strong>–<strong class="text-neutral-900">{endRow.toLocaleString()}</strong> of <strong class="text-neutral-900">{totalRows.toLocaleString()}</strong> result{totalRows !== 1 ? 's' : ''} for "{searchTerm}"
 								{:else}
-									Showing <strong class="text-teal-900">{tableData.length}</strong> row{tableData.length !== 1 ? 's' : ''}
+									Showing <strong class="text-neutral-900">{startRow.toLocaleString()}</strong>–<strong class="text-neutral-900">{endRow.toLocaleString()}</strong> of <strong class="text-neutral-900">{totalRows.toLocaleString()}</strong> row{totalRows !== 1 ? 's' : ''}
 								{/if}
 							</p>
 						</div>
-						
+
+						{#if totalRows > pageSize}
+							<div class="flex items-center space-x-1">
+								<button
+									on:click={() => goToPage(1)}
+									disabled={currentPage === 1}
+									class="px-2 py-1.5 text-sm rounded-lg border border-neutral-200 hover:bg-neutral-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+									title="First page"
+								>
+									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+									</svg>
+								</button>
+								<button
+									on:click={() => goToPage(currentPage - 1)}
+									disabled={currentPage === 1}
+									class="px-2 py-1.5 text-sm rounded-lg border border-neutral-200 hover:bg-neutral-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+									title="Previous page"
+								>
+									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+									</svg>
+								</button>
+
+								<span class="px-3 py-1.5 text-sm font-medium text-neutral-700">
+									{currentPage} / {totalPages.toLocaleString()}
+								</span>
+
+								<button
+									on:click={() => goToPage(currentPage + 1)}
+									disabled={currentPage === totalPages}
+									class="px-2 py-1.5 text-sm rounded-lg border border-neutral-200 hover:bg-neutral-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+									title="Next page"
+								>
+									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+									</svg>
+								</button>
+								<button
+									on:click={() => goToPage(totalPages)}
+									disabled={currentPage === totalPages}
+									class="px-2 py-1.5 text-sm rounded-lg border border-neutral-200 hover:bg-neutral-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+									title="Last page"
+								>
+									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+									</svg>
+								</button>
+							</div>
+						{/if}
+
 						{#if searchTerm || sortColumn}
 							<button
 								on:click={() => { searchTerm = ''; sortColumn = null; }}
-								class="text-sm text-teal-600 hover:text-teal-800 font-semibold bg-white/60 backdrop-blur-sm border border-teal-200/60 rounded-lg px-3 py-1.5 hover:bg-white hover:shadow-elegant transition-all duration-300"
+								class="text-sm text-neutral-600 hover:text-neutral-800 font-semibold bg-white border border-neutral-200 rounded-lg px-3 py-1.5 hover:bg-neutral-50 transition-all duration-300"
 							>
 								<svg class="w-3 h-3 mr-1.5 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>

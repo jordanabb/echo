@@ -19,11 +19,11 @@
 	const baseClasses = 'relative inline-flex items-center justify-center font-semibold transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-[1.02] active:scale-[0.98] overflow-hidden';
 
 	const variantClasses = {
-		primary: 'bg-gradient-to-r from-teal-700 to-teal-800 text-white hover:from-teal-800 hover:to-teal-900 focus:ring-teal-500 shadow-luxury hover:shadow-floating border border-teal-600',
+		primary: 'bg-teal-50 text-teal-800 hover:bg-teal-100 focus:ring-teal-500 border-2 border-teal-700 hover:border-teal-800',
 		secondary: 'bg-gradient-to-r from-secondary-600 to-secondary-700 text-white hover:from-secondary-700 hover:to-secondary-800 focus:ring-secondary-500 shadow-luxury hover:shadow-floating',
 		accent: 'bg-gradient-to-r from-accent-600 to-accent-700 text-white hover:from-accent-700 hover:to-accent-800 focus:ring-accent-500 shadow-luxury hover:shadow-floating',
-		outline: 'border-2 border-teal-800 text-teal-800 hover:bg-teal-50 hover:border-teal-900 focus:ring-teal-500 shadow-elegant hover:shadow-luxury backdrop-blur-sm',
-		ghost: 'text-teal-800 hover:bg-teal-50 hover:text-teal-900 focus:ring-teal-500 hover:shadow-elegant backdrop-blur-sm'
+		outline: 'border-2 border-neutral-300 text-neutral-800 hover:bg-neutral-50 hover:border-neutral-400 focus:ring-neutral-400 backdrop-blur-sm',
+		ghost: 'text-neutral-700 hover:bg-neutral-50 hover:text-neutral-900 focus:ring-neutral-400 backdrop-blur-sm'
 	};
 
 	const sizeClasses = {

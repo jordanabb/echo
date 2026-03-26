@@ -72,7 +72,7 @@
 </script>
 
 <!-- Always show the control panel if there are controls or we want to show the save button -->
-<div class="absolute top-2 right-2 md:top-4 md:right-4 z-20 bg-white bg-opacity-90 backdrop-blur-sm rounded-lg shadow-lg border border-gray-200 p-1.5 md:p-2 max-w-[160px] md:max-w-none">
+<div class="absolute top-2 right-2 md:top-4 md:right-4 z-20 bg-white bg-opacity-90 backdrop-blur-sm rounded-lg shadow-lg border border-neutral-200 p-1.5 md:p-2 max-w-[160px] md:max-w-none">
 	<!-- Save Map Button -->
 	<div class="mb-2">
 		<button
@@ -91,13 +91,13 @@
 		<!-- Year Controls -->
 		{#if showYearControls}
 			<div class="mb-2">
-				<label class="block text-xs font-medium text-gray-700 mb-1">
+				<label class="block text-xs font-medium text-neutral-700 mb-1">
 					Year
 				</label>
 				<div class="flex flex-wrap gap-1">
 					{#each $currentYears.sort((a, b) => a - b) as year}
 						<button
-							class="px-2 py-1 text-xs rounded border transition-colors {displayYear === year ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}"
+							class="px-2 py-1 text-xs rounded border transition-colors {displayYear === year ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-50'}"
 							on:click={() => selectYear(year)}
 							title="Show data for {year}"
 						>
@@ -111,7 +111,7 @@
 		<!-- Indicator Controls -->
 		{#if showIndicatorControls}
 			<div>
-				<label class="block text-xs font-medium text-gray-700 mb-1">
+				<label class="block text-xs font-medium text-neutral-700 mb-1">
 					Variable
 				</label>
 				<div class="space-y-1">
@@ -121,7 +121,7 @@
 						{@const displayName = getIndicatorDisplayName(indicatorId)}
 						{@const isAvailable = indicator ? isVariableAvailableForDisplayYear(indicator) : true}
 						<button
-							class="block px-2 py-1 text-xs rounded border text-left transition-colors whitespace-nowrap relative {isActive && isAvailable ? 'bg-teal-600 text-white border-teal-600' : isAvailable ? 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50' : 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-60'}"
+							class="block px-2 py-1 text-xs rounded border text-left transition-colors whitespace-nowrap relative {isActive && isAvailable ? 'bg-teal-600 text-white border-teal-600' : isAvailable ? 'bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-50' : 'bg-neutral-100 text-neutral-400 border-neutral-200 cursor-not-allowed opacity-60'}"
 							on:click={() => isAvailable && selectIndicator(indicatorId)}
 							title={isAvailable ? displayName : `${displayName} - Not available for ${displayYear}`}
 							disabled={!isAvailable}
@@ -129,7 +129,7 @@
 							<span class="flex items-center gap-1">
 								{truncateIndicatorName(displayName, 25)}
 								{#if !isAvailable}
-									<svg class="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<svg class="w-3 h-3 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
 									</svg>
 								{/if}

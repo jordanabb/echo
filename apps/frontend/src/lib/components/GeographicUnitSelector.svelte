@@ -94,17 +94,17 @@
 	<!-- Selector Button -->
 	<button
 		type="button"
-		class="relative w-full bg-white border border-gray-300 rounded-md shadow-sm pl-3 pr-10 py-2 text-left cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm {disabled ? 'opacity-50 cursor-not-allowed' : 'hover:border-gray-400'}"
+		class="relative w-full bg-white border border-neutral-300 rounded-md shadow-sm pl-3 pr-10 py-2 text-left cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm {disabled ? 'opacity-50 cursor-not-allowed' : 'hover:border-neutral-400'}"
 		on:click={toggleDropdown}
 		{disabled}
 		aria-haspopup="listbox"
 		aria-expanded={isDropdownOpen}
 	>
-		<span class="block truncate {selectedUnits.length === 0 ? 'text-gray-500' : 'text-gray-900'}">
+		<span class="block truncate {selectedUnits.length === 0 ? 'text-neutral-500' : 'text-neutral-900'}">
 			{displayText}
 		</span>
 		<span class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-			<svg class="h-5 w-5 text-gray-400 transform transition-transform {isDropdownOpen ? 'rotate-180' : ''}" viewBox="0 0 20 20" fill="currentColor">
+			<svg class="h-5 w-5 text-neutral-400 transform transition-transform {isDropdownOpen ? 'rotate-180' : ''}" viewBox="0 0 20 20" fill="currentColor">
 				<path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
 			</svg>
 		</span>
@@ -114,10 +114,10 @@
 	{#if isDropdownOpen}
 		<div class="absolute z-50 mt-1 w-full bg-white shadow-lg max-h-80 rounded-md py-1 text-base ring-1 ring-black ring-opacity-5 overflow-auto focus:outline-none text-sm">
 			<!-- Search Input -->
-			<div class="sticky top-0 bg-white px-3 py-2 border-b border-gray-200">
+			<div class="sticky top-0 bg-white px-3 py-2 border-b border-neutral-200">
 				<input
 					type="text"
-					class="w-full px-3 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm"
+					class="w-full px-3 py-1 border border-neutral-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm"
 					placeholder={placeholder}
 					bind:value={searchTerm}
 				/>
@@ -125,7 +125,7 @@
 			
 			<!-- Bulk Actions -->
 			{#if availableUnits.length > 0}
-				<div class="sticky top-12 bg-white px-3 py-2 border-b border-gray-200 flex space-x-2">
+				<div class="sticky top-12 bg-white px-3 py-2 border-b border-neutral-200 flex space-x-2">
 					<Button
 						variant="outline"
 						size="xs"
@@ -147,22 +147,22 @@
 			
 			<!-- Unit List -->
 			{#if filteredUnits.length === 0}
-				<div class="px-3 py-2 text-gray-500 text-center">
+				<div class="px-3 py-2 text-neutral-500 text-center">
 					{searchTerm ? 'No units match your search' : 'No units available'}
 				</div>
 			{:else}
 				{#each filteredUnits as unit (unit.geo_id)}
-					<label class="flex items-center px-3 py-2 hover:bg-gray-50 cursor-pointer">
+					<label class="flex items-center px-3 py-2 hover:bg-neutral-50 cursor-pointer">
 						<input
 							type="checkbox"
-							class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+							class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-neutral-300 rounded"
 							checked={selectedUnits.includes(unit.geo_id)}
 							on:change={() => toggleUnit(unit.geo_id)}
 						/>
-						<span class="ml-3 block truncate text-gray-900">
+						<span class="ml-3 block truncate text-neutral-900">
 							{unit.geo_name}
 						</span>
-						<span class="ml-auto text-xs text-gray-500">
+						<span class="ml-auto text-xs text-neutral-500">
 							{unit.geo_id}
 						</span>
 					</label>

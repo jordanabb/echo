@@ -44,6 +44,7 @@ def normalize_geo_id(geo_id: str, geo_level: str) -> str:
         'county': 5,
         'tract': 11,
         'school_district': 7,
+        'congressional_district': 4,
         'sldl': 5,  # State Legislative District Lower
         'sldu': 5   # State Legislative District Upper
     }
@@ -226,95 +227,77 @@ def get_map_view_data(
         query_params["state_filter"] = state_filter
     
     sql_query = text(f"""
-        SELECT DISTINCT ON (g.geo_id) 
-               g.geo_id, 
+        SELECT DISTINCT ON (g.geo_id)
+               g.geo_id,
                g.geo_name,
-               g.geo_level,
-               g.year as geo_year,
-               g.geometry, 
-               r.value,
-               r.year as data_year
+               ST_AsGeoJSON(g.geometry)::json as geometry,
+               r.value
         FROM geographies g
         LEFT JOIN results_data r ON g.geo_id = r.geo_id
                                AND r.indicator_id = :indicator
                                AND r.year = :year
+                               AND r.geo_level = :geo_level
         WHERE g.geo_level = :geo_level
           AND g.year = :year
           {state_filter_clause}
-        ORDER BY g.geo_id, g.year DESC, r.value DESC NULLS LAST;
+        ORDER BY g.geo_id, r.value DESC NULLS LAST;
     """)
 
-    # Execute the query and load directly into a GeoPandas GeoDataFrame
-    gdf = gpd.read_postgis(
-        sql_query,
-        db.bind,
-        params=query_params,
-        geom_col='geometry'
-    )
+    result = db.execute(sql_query, query_params).fetchall()
 
-    if gdf.empty:
+    if not result:
         raise HTTPException(status_code=404, detail=f"No geographic data found for level '{geo_level}' in year {year}")
 
-    # Validate that all returned data is for the correct geographic level
-    unique_geo_levels = gdf['geo_level'].unique()
-    if len(unique_geo_levels) != 1 or unique_geo_levels[0] != geo_level:
-        print(f"ERROR: Expected geo_level '{geo_level}', but got: {unique_geo_levels}")
-        raise HTTPException(status_code=500, detail=f"Data integrity error: mixed geographic levels returned")
-    
-    # Validate that all returned data is for the correct year
-    unique_geo_years = gdf['geo_year'].unique()
-    if len(unique_geo_years) != 1 or unique_geo_years[0] != year:
-        print(f"ERROR: Expected year {year}, but got geo years: {unique_geo_years}")
-        raise HTTPException(status_code=500, detail=f"Data integrity error: mixed years returned")
+    # Build data structures directly — no geopandas needed
+    features = []
+    values = []
+    for i, row in enumerate(result):
+        geo_id = normalize_geo_id(str(row.geo_id), geo_level)
+        val = None
+        if row.value is not None:
+            try:
+                val = float(row.value)
+            except (ValueError, TypeError):
+                val = None
+        features.append({
+            "type": "Feature",
+            "id": i,
+            "properties": {"geo_id": geo_id, "geo_name": row.geo_name},
+            "geometry": row.geometry
+        })
+        values.append((geo_id, val))
 
-    # Log sample data for debugging (first 3 records only)
-    sample_data = gdf[['geo_id', 'geo_level', 'geo_year', 'value', 'data_year']].head(3)
-    print(f"API Debug - Requested: indicator={indicator}, geo_level={geo_level}, year={year}")
-    print(f"API Debug - Returned {len(gdf)} features for geo_level='{unique_geo_levels[0]}', year={unique_geo_years[0]}")
-    print(f"API Debug - Sample data:\n{sample_data.to_string()}")
+    # Classify into 5 bins (quintiles)
+    valid_values = [v for _, v in values if v is not None]
 
-    # Normalize geo_ids to ensure consistent formatting
-    gdf['geo_id'] = gdf['geo_id'].apply(lambda x: normalize_geo_id(str(x), geo_level))
-
-    # Convert string values to numeric (fix for data type issue)
-    gdf['value'] = pd.to_numeric(gdf['value'], errors='coerce')
-    
-    # Classify the data into 5 bins (quintiles)
-    data_for_classification = gdf['value'].dropna()
-
-    if data_for_classification.empty or len(data_for_classification.unique()) < 5:
-        # If there's no data or not enough variation, assign all to 'no data'
-        gdf['bin'] = -1
+    if len(set(valid_values)) < 5:
+        bins_map = {geo_id: -1 for geo_id, _ in values}
         legend_entries = []
     else:
-        classifier = mapclassify.Quantiles(data_for_classification, k=5)
-        gdf['bin'] = gdf['value'].apply(lambda x: classifier.find_bin(x) if pd.notna(x) else -1)
+        classifier = mapclassify.Quantiles(pd.Series(valid_values), k=5)
+        bins_map = {}
+        for geo_id, val in values:
+            if val is None:
+                bins_map[geo_id] = -1
+            else:
+                bins_map[geo_id] = int(classifier.find_bin(val))
 
-        # Create the human-readable legend
         legend_entries = []
         for i, a_bin in enumerate(classifier.bins):
-            lower_bound = classifier.bins[i-1] if i > 0 else data_for_classification.min()
+            lower_bound = classifier.bins[i-1] if i > 0 else min(valid_values)
             label = f"{lower_bound:,.2f} - {a_bin:,.2f}"
             legend_entries.append(schemas.LegendEntry(label=label, color=CHOROPLETH_PALETTE[i]))
 
     legend_entries.append(schemas.LegendEntry(label="No Data", color=NO_DATA_COLOR))
-    
-    # Prepare the final payload
-    # Convert GeoDataFrame to a GeoJSON dictionary (include geo_name)
-    geo_json_dict = json.loads(gdf[['geo_id', 'geo_name', 'geometry']].to_json())
 
-    # Normalize geo_ids in the response data
+    geo_json_dict = {"type": "FeatureCollection", "features": features}
+
     response_data = [
-        schemas.MapViewData(
-            geo_id=normalize_geo_id(str(row.geo_id), geo_level), 
-            value=None if pd.isna(row.value) else float(row.value), 
-            bin=int(row.bin)
-        )
-        for row in gdf[['geo_id', 'value', 'bin']].itertuples()
+        schemas.MapViewData(geo_id=geo_id, value=val, bin=bins_map[geo_id])
+        for geo_id, val in values
     ]
 
-    # Final validation: ensure response data only contains the requested geo_level
-    print(f"API Debug - Returning {len(response_data)} data points and {len(geo_json_dict.get('features', []))} GeoJSON features")
+    print(f"API Debug - Returning {len(response_data)} data points and {len(features)} GeoJSON features")
 
     return schemas.MapViewResponse(
         geoJson=geo_json_dict,
@@ -337,40 +320,43 @@ def get_geometries(
     """
     Provides ONLY the geometric boundaries for a given geography level and year.
     This endpoint is designed for caching - geometries don't change when indicators change.
+    state_filter accepts a single FIPS code or comma-separated codes.
     """
     # Validate input parameters
     if not geo_level or not year:
         raise HTTPException(status_code=400, detail="geo_level and year are required")
-    
+
     # First, validate that the requested geo_level exists in the database
     geo_level_check_query = text("""
-        SELECT DISTINCT geo_level 
-        FROM geographies 
+        SELECT DISTINCT geo_level
+        FROM geographies
         WHERE geo_level = :geo_level AND year = :year
         LIMIT 1;
     """)
-    
+
     geo_level_result = db.execute(geo_level_check_query, {"geo_level": geo_level, "year": year}).fetchone()
     if not geo_level_result:
         raise HTTPException(status_code=404, detail=f"No geographic data found for level '{geo_level}' in year {year}")
-    
+
     # Construct a SQL query to get all geographies for the EXACT level and year
     # Add state filtering if state_filter is provided
     state_filter_clause = ""
     query_params = {"year": year, "geo_level": geo_level}
-    
+
     if state_filter:
-        # Filter by state using the optimized state_fips column
-        state_filter_clause = "AND g.state_fips = :state_filter"
-        query_params["state_filter"] = state_filter
+        state_codes = [s.strip() for s in state_filter.split(',') if s.strip()]
+        if len(state_codes) == 1:
+            state_filter_clause = "AND g.state_fips = :state_filter"
+            query_params["state_filter"] = state_codes[0]
+        elif len(state_codes) > 1:
+            state_filter_clause = "AND g.state_fips IN :state_filter"
+            query_params["state_filter"] = tuple(state_codes)
     
     sql_query = text(f"""
-        SELECT DISTINCT ON (g.geo_id) 
-               g.geo_id, 
+        SELECT DISTINCT ON (g.geo_id)
+               g.geo_id,
                g.geo_name,
-               g.geo_level,
-               g.year as geo_year,
-               g.geometry
+               ST_AsGeoJSON(g.geometry)::json as geometry
         FROM geographies g
         WHERE g.geo_level = :geo_level
           AND g.year = :year
@@ -378,31 +364,61 @@ def get_geometries(
         ORDER BY g.geo_id;
     """)
 
-    # Execute the query and load directly into a GeoPandas GeoDataFrame
-    gdf = gpd.read_postgis(
-        sql_query,
-        db.bind,
-        params=query_params,
-        geom_col='geometry'
-    )
+    result = db.execute(sql_query, query_params).fetchall()
 
-    if gdf.empty:
+    if not result:
         raise HTTPException(status_code=404, detail=f"No geographic data found for level '{geo_level}' in year {year}")
 
-    # Normalize geo_ids to ensure consistent formatting
-    gdf['geo_id'] = gdf['geo_id'].apply(lambda x: normalize_geo_id(str(x), geo_level))
+    # Build GeoJSON directly from SQL results — no geopandas needed
+    features = []
+    for i, row in enumerate(result):
+        geo_id = normalize_geo_id(str(row.geo_id), geo_level)
+        features.append({
+            "type": "Feature",
+            "id": i,
+            "properties": {"geo_id": geo_id, "geo_name": row.geo_name},
+            "geometry": row.geometry
+        })
 
-    # Convert GeoDataFrame to a GeoJSON dictionary
-    geo_json_dict = json.loads(gdf[['geo_id', 'geo_name', 'geometry']].to_json())
+    geo_json_dict = {"type": "FeatureCollection", "features": features}
 
-    print(f"Geometries API - Returning {len(geo_json_dict.get('features', []))} GeoJSON features for {geo_level}")
+    print(f"Geometries API - Returning {len(features)} GeoJSON features for {geo_level}")
 
     return schemas.GeometriesResponse(
         geoJson=geo_json_dict,
         geo_level=geo_level,
         year=year,
-        count=len(geo_json_dict.get('features', []))
+        count=len(features)
     )
+
+
+@app.get("/api/geo-ids")
+def get_geo_ids(
+    geo_level: str,
+    year: int,
+    state_filter: str = None,
+    db: Session = Depends(get_db)
+):
+    """Returns only geo_ids for a given level/year — no geometry, very fast. Supports comma-separated state_filter."""
+    query_params = {"geo_level": geo_level, "year": year}
+    state_clause = ""
+    if state_filter:
+        state_codes = [s.strip() for s in state_filter.split(',') if s.strip()]
+        if len(state_codes) == 1:
+            state_clause = "AND state_fips = :state_filter"
+            query_params["state_filter"] = state_codes[0]
+        elif len(state_codes) > 1:
+            state_clause = "AND state_fips IN :state_filter"
+            query_params["state_filter"] = tuple(state_codes)
+
+    result = db.execute(text(f"""
+        SELECT DISTINCT geo_id
+        FROM geographies
+        WHERE geo_level = :geo_level AND year = :year {state_clause}
+        ORDER BY geo_id
+    """), query_params).fetchall()
+
+    return [row.geo_id for row in result]
 
 
 @app.get(
@@ -439,15 +455,19 @@ def get_indicator_data(
         # Invalid indicator
         raise HTTPException(status_code=400, detail=f"Invalid indicator: {indicator}")
     
-    # Add state filtering if state_filter is provided
+    # Add state filtering if state_filter is provided (supports comma-separated)
     state_filter_clause = ""
     query_params = {"indicator": db_indicator_name, "year": year, "geo_level": geo_level}
-    
+
     if state_filter:
-        # Filter by state using the optimized state_fips column
-        state_filter_clause = "AND g.state_fips = :state_filter"
-        query_params["state_filter"] = state_filter
-    
+        state_codes = [s.strip() for s in state_filter.split(',') if s.strip()]
+        if len(state_codes) == 1:
+            state_filter_clause = "AND g.state_fips = :state_filter"
+            query_params["state_filter"] = state_codes[0]
+        elif len(state_codes) > 1:
+            state_filter_clause = "AND g.state_fips IN :state_filter"
+            query_params["state_filter"] = tuple(state_codes)
+
     # Query to get indicator data with geo_names for reference
     sql_query = text(f"""
         SELECT DISTINCT ON (g.geo_id) 
@@ -570,22 +590,40 @@ def get_table_data(request: schemas.TableDataRequest, db: Session = Depends(get_
     if request.geo_level:
         geo_level_clause = "AND g.geo_level = :geo_level"
         query_params["geo_level"] = request.geo_level
-    
+
+    search_clause = ""
+    if request.search:
+        search_clause = "AND g.geo_name ILIKE :search"
+        query_params["search"] = f"%{request.search}%"
+
+    # Build pagination clause
+    pagination_clause = ""
+    if request.page is not None:
+        page = max(1, request.page)
+        page_size = max(1, min(request.page_size or 100, 1000))
+        offset = (page - 1) * page_size
+        pagination_clause = f"LIMIT {page_size} OFFSET {offset}"
+
+    # Single query with COUNT(*) OVER() window function to get total in one round-trip
     sql_query = text(f"""
-        SELECT
-            r.geo_id,
-            g.geo_name,
-            g.state_fips,
-            r.year,
-            {pivot_sql}
-        FROM results_data r
-        JOIN geographies g ON r.geo_id = g.geo_id AND g.year = r.year
-        WHERE r.geo_id IN :geo_ids
-          AND r.indicator_id IN :indicator_ids
-          AND r.year IN :years
-          {geo_level_clause}
-        GROUP BY r.geo_id, g.geo_name, g.state_fips, r.year
-        ORDER BY g.geo_name, r.year;
+        SELECT *, COUNT(*) OVER() AS _total FROM (
+            SELECT
+                r.geo_id,
+                g.geo_name,
+                g.state_fips,
+                r.year,
+                {pivot_sql}
+            FROM results_data r
+            JOIN geographies g ON r.geo_id = g.geo_id AND g.year = r.year
+            WHERE r.geo_id IN :geo_ids
+              AND r.indicator_id IN :indicator_ids
+              AND r.year IN :years
+              {geo_level_clause}
+              {search_clause}
+            GROUP BY r.geo_id, g.geo_name, g.state_fips, r.year
+            ORDER BY g.geo_name, r.year
+        ) sub
+        {pagination_clause};
     """)
 
     # Use pandas for efficient execution and conversion to JSON
@@ -594,11 +632,15 @@ def get_table_data(request: schemas.TableDataRequest, db: Session = Depends(get_
         db.bind,
         params=query_params
     )
-    
+
     if df.empty:
-        return []
+        return {"data": [], "total": 0}
+
+    # Extract total from window function, then drop the column
+    total = int(df["_total"].iloc[0])
+    df = df.drop(columns=["_total"])
 
     # Convert pandas NaN (Not a Number) to None for proper JSON nulls
     df = df.where(pd.notna(df), None)
 
-    return df.to_dict(orient='records')
+    return {"data": df.to_dict(orient='records'), "total": total}

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { slide } from 'svelte/transition';
 	import { quintOut } from 'svelte/easing';
 	import Button from './Button.svelte';
@@ -111,21 +111,50 @@
 	function handleGeoLevelChange(event: Event) {
 		const target = event.target as HTMLSelectElement;
 		const geoLevel = target.value || null;
-		// Clear state filter when geography level changes
-		updateFilters({
-			geoLevel: geoLevel,
-			geoFilter: null
-		});
+		updateFilter('geoLevel', geoLevel);
 	}
 
-	/**
-	 * Handles state filter change
-	 */
-	function handleStateFilterChange(event: Event) {
-		const target = event.target as HTMLSelectElement;
-		const stateCode = target.value || null;
-		updateFilter('geoFilter', stateCode);
+	// State multi-select dropdown
+	let showStateDropdown = false;
+
+	function toggleState(code: string) {
+		const current = $currentGeoFilter || [];
+		if (current.includes(code)) {
+			updateFilter('geoFilter', current.filter(c => c !== code));
+		} else {
+			updateFilter('geoFilter', [...current, code]);
+		}
 	}
+
+	function clearStateFilter() {
+		updateFilter('geoFilter', []);
+	}
+
+	function getStateFilterLabel(): string {
+		const selected = $currentGeoFilter || [];
+		if (selected.length === 0) return 'All States';
+		if (selected.length === 1) {
+			return US_STATES.find(s => s.code === selected[0])?.name || selected[0];
+		}
+		return `${selected.length} States`;
+	}
+
+	// Close dropdown on click outside
+	function handleClickOutside(event: MouseEvent) {
+		if (showStateDropdown) {
+			const target = event.target as HTMLElement;
+			if (!target.closest('[data-state-dropdown]')) {
+				showStateDropdown = false;
+			}
+		}
+	}
+
+	onMount(() => {
+		document.addEventListener('click', handleClickOutside);
+	});
+	onDestroy(() => {
+		document.removeEventListener('click', handleClickOutside);
+	});
 
 	/**
 	 * Handles primary year change
@@ -304,7 +333,7 @@
 <svelte:window on:keydown={handleKeydown} />
 
 <!-- Unified Context Bar -->
-<div class="bg-gradient-to-r from-white via-teal-50/30 to-white border-b border-teal-200/50 shadow-luxury backdrop-blur-sm sticky top-0 z-40">
+<div class="bg-white/80 backdrop-blur-sm border-b border-neutral-200 sticky top-0 z-40">
 	<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
 		<!-- Mobile Context Bar -->
@@ -313,24 +342,24 @@
 			<div class="flex items-center justify-between py-3">
 				<div class="flex-1 min-w-0 mr-3">
 					<div class="flex items-center space-x-2">
-						<div class="flex items-center justify-center w-7 h-7 rounded-lg bg-gradient-to-br from-teal-100 to-teal-200 text-teal-700 flex-shrink-0">
+						<div class="flex items-center justify-center w-7 h-7 rounded-lg bg-teal-700 text-white flex-shrink-0">
 							<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/>
 							</svg>
 						</div>
 						<div class="min-w-0 flex-1">
-							<p class="text-sm font-semibold text-teal-800 truncate">
+							<p class="text-sm font-semibold text-neutral-800 truncate">
 								{#if $currentGeoLevel}
 									{$geographies[$currentGeoLevel]?.name || $currentGeoLevel}
-									{#if $currentGeoFilter}
-										<span class="text-teal-600">({getStateNameByCode($currentGeoFilter)})</span>
+									{#if $currentGeoFilter && $currentGeoFilter.length > 0}
+										<span class="text-neutral-600">({$currentGeoFilter.length === 1 ? getStateNameByCode($currentGeoFilter[0]) : `${$currentGeoFilter.length} states`})</span>
 									{/if}
 								{:else}
 									Select filters to begin
 								{/if}
 							</p>
 							{#if $selectedIndicatorCount > 0}
-								<p class="text-xs text-teal-600 truncate">
+								<p class="text-xs text-neutral-600 truncate">
 									{$selectedIndicatorCount} variable{$selectedIndicatorCount !== 1 ? 's' : ''} selected
 								</p>
 							{/if}
@@ -338,7 +367,7 @@
 					</div>
 				</div>
 				<button
-					class="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-teal-100 to-teal-200 text-teal-700 hover:shadow-elegant transition-all duration-300"
+					class="flex items-center justify-center w-10 h-10 rounded-xl bg-neutral-100 text-neutral-600 hover:bg-neutral-200 transition-all duration-300"
 					on:click={() => showMobileFilters = !showMobileFilters}
 					aria-label="Toggle filters"
 				>
@@ -354,12 +383,12 @@
 
 			<!-- Expandable Mobile Filters -->
 			{#if showMobileFilters}
-				<div class="border-t border-teal-200/50 py-4 space-y-4" transition:slide={{ duration: 300, easing: quintOut }}>
+				<div class="border-t border-neutral-200 py-4 space-y-4" transition:slide={{ duration: 300, easing: quintOut }}>
 					<!-- Geography Level -->
 					<div class="space-y-2">
-						<label class="text-xs font-semibold text-teal-700 uppercase tracking-wide">Geographic Unit</label>
+						<label class="text-xs font-semibold text-neutral-700 uppercase tracking-wide">Geographic Unit</label>
 						<select
-							class="w-full text-sm font-semibold bg-white border border-teal-200 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 rounded-xl px-4 py-3 cursor-pointer text-teal-800"
+							class="w-full text-sm font-semibold bg-white border border-neutral-200 focus:ring-2 focus:ring-teal-500 focus:border-teal-700 rounded-xl px-4 py-3 cursor-pointer text-neutral-800"
 							value={$currentGeoLevel || ''}
 							on:change={handleGeoLevelChange}
 						>
@@ -370,27 +399,51 @@
 						</select>
 					</div>
 
-					<!-- State Filter -->
+					<!-- State Filter (Multi-Select) -->
 					{#if $currentGeoLevel}
-						<div class="space-y-2">
-							<label class="text-xs font-semibold text-teal-700 uppercase tracking-wide">State (Optional)</label>
-							<select
-								class="w-full text-sm font-semibold bg-white border border-teal-200 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 rounded-xl px-4 py-3 cursor-pointer text-teal-800"
-								value={$currentGeoFilter || ''}
-								on:change={handleStateFilterChange}
-							>
-								<option value="">All States</option>
-								{#each US_STATES as state}
-									<option value={state.code}>{state.name}</option>
-								{/each}
-							</select>
+						<div class="space-y-2" data-state-dropdown>
+							<label class="text-xs font-semibold text-neutral-700 uppercase tracking-wide">States (Optional)</label>
+							<div class="relative">
+								<button
+									type="button"
+									class="w-full text-sm font-semibold bg-white border border-neutral-200 focus:ring-2 focus:ring-teal-500 focus:border-teal-700 rounded-xl px-4 py-3 cursor-pointer text-neutral-800 text-left flex items-center justify-between"
+									on:click={() => showStateDropdown = !showStateDropdown}
+								>
+									<span class="truncate">{getStateFilterLabel()}</span>
+									<svg class="w-4 h-4 ml-2 flex-shrink-0 transition-transform {showStateDropdown ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+									</svg>
+								</button>
+								{#if showStateDropdown}
+									<div class="absolute z-50 mt-1 w-full bg-white border border-neutral-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
+											<button
+												type="button"
+												class="w-full text-left px-4 py-2 text-sm font-semibold border-b border-neutral-100 {$currentGeoFilter.length === 0 ? 'bg-teal-50 text-teal-700' : 'text-neutral-700 hover:bg-teal-50'}"
+												on:click={clearStateFilter}
+											>
+												All States
+											</button>
+										{#each US_STATES as state}
+											<label class="flex items-center px-4 py-2 hover:bg-neutral-50 cursor-pointer text-sm">
+												<input
+													type="checkbox"
+													checked={$currentGeoFilter.includes(state.code)}
+													on:change={() => toggleState(state.code)}
+													class="h-4 w-4 text-teal-600 focus:ring-teal-500 border-neutral-300 rounded mr-3"
+												/>
+												{state.name}
+											</label>
+										{/each}
+									</div>
+								{/if}
+							</div>
 						</div>
 					{/if}
 
 					<!-- Year Selector -->
 					<div class="space-y-2">
-						<label class="text-xs font-semibold text-teal-700 uppercase tracking-wide">Year</label>
-						<div class="bg-white border border-teal-200 rounded-xl">
+						<label class="text-xs font-semibold text-neutral-700 uppercase tracking-wide">Year</label>
+						<div class="bg-white border border-neutral-200 rounded-xl">
 							<YearSelector
 								selectedYears={$currentYears}
 								mode="dropdown"
@@ -402,9 +455,9 @@
 
 					<!-- Variables Button -->
 					<div class="space-y-2">
-						<label class="text-xs font-semibold text-teal-700 uppercase tracking-wide">Variables</label>
+						<label class="text-xs font-semibold text-neutral-700 uppercase tracking-wide">Variables</label>
 						<button
-							class="w-full text-sm font-semibold bg-white border border-teal-200 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 rounded-xl px-4 py-3 cursor-pointer text-left text-teal-800 flex items-center justify-between"
+							class="w-full text-sm font-semibold bg-white border border-neutral-200 focus:ring-2 focus:ring-teal-500 focus:border-teal-700 rounded-xl px-4 py-3 cursor-pointer text-left text-neutral-800 flex items-center justify-between"
 							on:click={() => { $showVariableSelector = !$showVariableSelector; showMobileFilters = false; }}
 						>
 							<span class="truncate">{getVariableDisplayText()}</span>
@@ -422,12 +475,6 @@
 							</svg>
 							Reset
 						</Button>
-						<Button variant="ghost" size="sm" class="flex-1" on:click={() => { showAdvanced = !showAdvanced; }}>
-							<svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4"/>
-							</svg>
-							Advanced
-						</Button>
 					</div>
 				</div>
 			{/if}
@@ -441,71 +488,91 @@
 				<div class="flex items-center space-x-6">
 				<!-- Geography Level -->
 				<div class="flex items-center space-x-3 group">
-					<div class="flex items-center justify-center w-8 h-8 rounded-xl bg-gradient-to-br from-teal-100 to-teal-200 text-teal-700 shadow-elegant group-hover:shadow-luxury transition-all duration-300">
+					<div class="flex items-center justify-center w-8 h-8 rounded-xl bg-teal-700 text-white transition-all duration-300">
 						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
 						</svg>
 					</div>
 					<select
-						class="text-sm font-semibold bg-white/80 backdrop-blur-sm border border-teal-200/60 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 rounded-xl px-4 py-2.5 cursor-pointer hover:bg-white hover:shadow-elegant transition-all duration-300 text-teal-800 min-w-[160px]"
+						class="text-sm font-semibold bg-white/80 backdrop-blur-sm border border-neutral-200 focus:ring-2 focus:ring-teal-500 focus:border-teal-700 rounded-xl px-4 py-2.5 cursor-pointer hover:bg-white transition-all duration-300 text-neutral-800 min-w-[160px]"
 						value={$currentGeoLevel || ''}
 						on:change={handleGeoLevelChange}
 					>
 						<option value="" class="text-neutral-500">Select geographic unit...</option>
 						{#each geographyLevels as level}
-							<option value={level} class="text-teal-800">{$geographies[level]?.name || level}</option>
+							<option value={level} class="text-neutral-800">{$geographies[level]?.name || level}</option>
 						{/each}
 					</select>
 				</div>
 
-				<!-- State Filter (Optional) -->
+				<!-- State Filter (Multi-Select) -->
 				{#if $currentGeoLevel}
-					<div class="flex items-center space-x-3 group" transition:slide={{ duration: 300, easing: quintOut }}>
-						<div class="flex items-center justify-center w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-100 to-emerald-200 text-emerald-700 shadow-elegant group-hover:shadow-luxury transition-all duration-300">
+					<div class="flex items-center space-x-3 group relative" data-state-dropdown transition:slide={{ duration: 300, easing: quintOut }}>
+						<div class="flex items-center justify-center w-8 h-8 rounded-xl bg-teal-700 text-white transition-all duration-300">
 							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
 							</svg>
 						</div>
-						<select
-							class="text-sm font-semibold bg-white/80 backdrop-blur-sm border border-teal-200/60 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 rounded-xl px-4 py-2.5 cursor-pointer hover:bg-white hover:shadow-elegant transition-all duration-300 text-teal-800 min-w-[140px]"
-							value={$currentGeoFilter || ''}
-							on:change={handleStateFilterChange}
+						<button
+							type="button"
+							class="text-sm font-semibold bg-white/80 backdrop-blur-sm border border-neutral-200 focus:ring-2 focus:ring-teal-500 focus:border-teal-700 rounded-xl px-4 py-2.5 cursor-pointer hover:bg-white transition-all duration-300 text-neutral-800 min-w-[140px] text-left flex items-center justify-between"
+							on:click={() => showStateDropdown = !showStateDropdown}
 						>
-							<option value="" class="text-neutral-500">All States</option>
-							{#each US_STATES as state}
-								<option value={state.code} class="text-teal-800">{state.name}</option>
-							{/each}
-						</select>
+							<span class="truncate">{getStateFilterLabel()}</span>
+							<svg class="w-4 h-4 ml-2 flex-shrink-0 transition-transform {showStateDropdown ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+							</svg>
+						</button>
+						{#if showStateDropdown}
+							<div class="absolute top-full left-0 z-50 mt-1 w-64 bg-white border border-neutral-200 rounded-xl shadow-lg max-h-72 overflow-y-auto">
+									<button
+										type="button"
+										class="w-full text-left px-4 py-2 text-sm font-semibold border-b border-neutral-100 {$currentGeoFilter.length === 0 ? 'bg-teal-50 text-teal-700' : 'text-neutral-700 hover:bg-teal-50'}"
+										on:click={clearStateFilter}
+									>
+										All States
+									</button>
+								{#each US_STATES as state}
+									<label class="flex items-center px-4 py-1.5 hover:bg-neutral-50 cursor-pointer text-sm">
+										<input
+											type="checkbox"
+											checked={$currentGeoFilter.includes(state.code)}
+											on:change={() => toggleState(state.code)}
+											class="h-4 w-4 text-teal-600 focus:ring-teal-500 border-neutral-300 rounded mr-3"
+										/>
+										{state.name}
+									</label>
+								{/each}
+							</div>
+						{/if}
 					</div>
 				{/if}
 
 				<!-- Year -->
 				<div class="flex items-center space-x-3 group relative">
-					<div class="flex items-center justify-center w-8 h-8 rounded-xl bg-gradient-to-br from-teal-100 to-teal-200 text-teal-700 shadow-elegant group-hover:shadow-luxury transition-all duration-300">
+					<div class="flex items-center justify-center w-8 h-8 rounded-xl bg-teal-700 text-white transition-all duration-300">
 						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 002 2z"/>
 						</svg>
 					</div>
-					<div class="bg-white/80 backdrop-blur-sm border border-teal-200/60 rounded-xl hover:bg-white hover:shadow-elegant transition-all duration-300 min-w-[140px]">
-						<YearSelector
-							selectedYears={$currentYears}
-							mode="dropdown"
-							placeholder="Select years..."
-							on:change={(event) => setYears(event.detail.selectedYears)}
-						/>
-					</div>
+					<YearSelector
+						selectedYears={$currentYears}
+						mode="dropdown"
+						placeholder="Select years..."
+						on:change={(event) => setYears(event.detail.selectedYears)}
+					/>
 				</div>
 
 				<!-- Variables -->
 				<div class="flex items-center space-x-3 group">
-					<div class="flex items-center justify-center w-8 h-8 rounded-xl bg-gradient-to-br from-teal-100 to-teal-200 text-teal-700 shadow-elegant group-hover:shadow-luxury transition-all duration-300">
+					<div class="flex items-center justify-center w-8 h-8 rounded-xl bg-teal-700 text-white transition-all duration-300">
 						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
 						</svg>
 					</div>
 					<button
-						class="text-sm font-semibold bg-white/80 backdrop-blur-sm border border-teal-200/60 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 rounded-xl px-4 py-2.5 cursor-pointer hover:bg-white hover:shadow-elegant transition-all duration-300 text-left text-teal-800 min-w-[180px] flex items-center justify-between"
+						class="text-sm font-semibold bg-white/80 backdrop-blur-sm border border-neutral-200 focus:ring-2 focus:ring-neutral-400 focus:border-neutral-400 rounded-xl px-4 py-2.5 cursor-pointer hover:bg-neutral-50 transition-all duration-300 text-left text-neutral-800 min-w-[180px] flex items-center justify-between"
 						on:click={() => $showVariableSelector = !$showVariableSelector}
 					>
 						<span class="truncate">{getVariableDisplayText()}</span>
@@ -518,13 +585,6 @@
 
 			<!-- Right: Actions -->
 			<div class="flex items-center space-x-3">
-				<Button variant="ghost" size="sm" on:click={() => showAdvanced = !showAdvanced}>
-					<svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4"/>
-					</svg>
-					{showAdvanced ? 'Hide' : 'Show'} Advanced
-				</Button>
-				
 				<Button variant="outline" size="sm" on:click={resetFilters}>
 					<svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
@@ -535,104 +595,6 @@
 		</div>
 		</div>
 
-		<!-- Advanced Options -->
-		{#if showAdvanced}
-			<div class="border-t border-teal-200/50 py-6 bg-gradient-to-r from-teal-50/20 via-white/50 to-teal-50/20" transition:slide={{ duration: 300, easing: quintOut }}>
-				<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-					<!-- Primary Indicator (for single-variable views) -->
-					<div class="space-y-3">
-						<div class="flex items-center space-x-2">
-							<div class="w-6 h-6 rounded-lg bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center">
-								<svg class="w-3 h-3 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-								</svg>
-							</div>
-							<label class="text-sm font-semibold text-teal-800">
-								Primary Indicator (Maps)
-							</label>
-						</div>
-						<select
-							class="w-full text-sm font-medium bg-white/90 backdrop-blur-sm border border-teal-200/60 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 rounded-xl px-4 py-2.5 cursor-pointer hover:bg-white hover:shadow-elegant transition-all duration-300 text-teal-800"
-							value={$currentPrimaryIndicator || ''}
-							on:change={handlePrimaryIndicatorChange}
-						>
-							<option value="" class="text-neutral-500">Select primary indicator...</option>
-							{#each Object.entries($indicatorsByTheme) as [theme, themeIndicators]}
-								<optgroup label={theme} class="font-semibold text-teal-700">
-									{#each themeIndicators as indicator}
-										<option value={indicator.id} class="text-teal-800 font-normal">{indicator.name}</option>
-									{/each}
-								</optgroup>
-							{/each}
-						</select>
-					</div>
-
-					<!-- Current State Summary -->
-					<div class="space-y-3">
-						<div class="flex items-center space-x-2">
-							<div class="w-6 h-6 rounded-lg bg-gradient-to-br from-emerald-100 to-emerald-200 flex items-center justify-center">
-								<svg class="w-3 h-3 text-emerald-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-								</svg>
-							</div>
-							<label class="text-sm font-semibold text-teal-800">
-								Current Context
-							</label>
-						</div>
-						<div class="bg-white/60 backdrop-blur-sm border border-teal-200/40 rounded-xl p-4 space-y-2">
-							<div class="flex items-center justify-between text-xs">
-								<span class="font-medium text-teal-700">Geography:</span>
-								<span class="text-teal-800 font-semibold">{getGeoDisplayName($currentGeoLevel)}</span>
-							</div>
-							{#if $currentGeoFilter}
-								<div class="flex items-center justify-between text-xs">
-									<span class="font-medium text-teal-700">State:</span>
-									<span class="text-teal-800 font-semibold">{getStateNameByCode($currentGeoFilter) || $currentGeoFilter}</span>
-								</div>
-							{/if}
-							<div class="flex items-center justify-between text-xs">
-								<span class="font-medium text-teal-700">Year:</span>
-								<span class="text-teal-800 font-semibold">{$currentPrimaryYear || 'Not selected'}</span>
-							</div>
-							<div class="flex items-center justify-between text-xs">
-								<span class="font-medium text-teal-700">Variables:</span>
-								<span class="text-teal-800 font-semibold">{$selectedIndicatorCount} selected</span>
-							</div>
-						</div>
-					</div>
-
-					<!-- Quick Actions -->
-					<div class="space-y-3">
-						<div class="flex items-center space-x-2">
-							<div class="w-6 h-6 rounded-lg bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center">
-								<svg class="w-3 h-3 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-								</svg>
-							</div>
-							<label class="text-sm font-semibold text-teal-800">
-								Quick Actions
-							</label>
-						</div>
-						<div class="flex flex-col space-y-2">
-							{#if $selectedIndicatorCount > 0}
-								<Button variant="ghost" size="sm" on:click={clearIndicators}>
-									<svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-									</svg>
-									Clear Variables
-								</Button>
-							{/if}
-							<Button variant="ghost" size="sm" on:click={() => $showVariableSelector = true}>
-								<svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
-								</svg>
-								Select Variables
-							</Button>
-						</div>
-					</div>
-				</div>
-			</div>
-		{/if}
 	</div>
 </div>
 
@@ -644,31 +606,31 @@
 		class="fixed inset-0 bg-gradient-to-br from-black/60 via-black/50 to-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-0 md:p-4"
 		transition:slide={{ duration: 300 }}
 	>
-		<div class="bg-gradient-to-br from-white via-white to-teal-50/30 md:rounded-2xl shadow-floating border-0 md:border border-teal-200/30 w-full h-full md:max-w-4xl md:max-h-[85vh] flex flex-col backdrop-blur-sm">
+		<div class="bg-white md:rounded-2xl shadow-floating border-0 md:border border-neutral-200 w-full h-full md:max-w-4xl md:max-h-[85vh] flex flex-col backdrop-blur-sm">
 			<!-- Modal Header -->
-			<div class="p-4 md:p-6 border-b border-teal-200/40 bg-gradient-to-r from-white via-teal-50/20 to-white md:rounded-t-2xl">
+			<div class="p-4 md:p-6 border-b border-neutral-200 bg-white md:rounded-t-2xl">
 				<div class="flex items-center justify-between">
 					<div class="flex items-center space-x-2 md:space-x-3 min-w-0 flex-1">
-						<div class="w-8 h-8 md:w-10 md:h-10 rounded-xl bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center shadow-elegant flex-shrink-0">
-							<svg class="w-4 h-4 md:w-5 md:h-5 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<div class="w-8 h-8 md:w-10 md:h-10 rounded-xl bg-teal-700 flex items-center justify-center flex-shrink-0">
+							<svg class="w-4 h-4 md:w-5 md:h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
 							</svg>
 						</div>
 						<div class="min-w-0">
-							<h2 class="text-lg md:text-xl font-bold text-teal-900">Select Variables</h2>
-							<p class="text-xs md:text-sm text-teal-700 mt-0.5 hidden sm:block">Choose variables for analysis and visualization</p>
+							<h2 class="text-lg md:text-xl font-bold text-neutral-900">Select Variables</h2>
+							<p class="text-xs md:text-sm text-neutral-600 mt-0.5 hidden sm:block">Choose variables for analysis and visualization</p>
 						</div>
 					</div>
 					<div class="flex items-center space-x-2 md:space-x-3 flex-shrink-0">
 						{#if $selectedIndicatorCount > 0}
-							<div class="flex items-center space-x-1 md:space-x-2 bg-gradient-to-r from-teal-100 to-teal-200 text-teal-800 px-2 md:px-4 py-1.5 md:py-2 rounded-full shadow-elegant border border-teal-300/50">
+							<div class="flex items-center space-x-1 md:space-x-2 bg-neutral-100 text-neutral-800 px-2 md:px-4 py-1.5 md:py-2 rounded-full shadow-elegant border border-neutral-300">
 								<div class="w-2 h-2 bg-teal-600 rounded-full animate-pulse"></div>
 								<span class="text-xs md:text-sm font-semibold">
 									{$selectedIndicatorCount}
 								</span>
 							</div>
 							<button
-								class="hidden md:flex items-center text-sm text-teal-600 hover:text-teal-800"
+								class="hidden md:flex items-center text-sm text-neutral-500 hover:text-neutral-700"
 								on:click={clearIndicators}
 							>
 								<svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -678,7 +640,7 @@
 							</button>
 						{/if}
 						<button
-							class="w-10 h-10 md:w-10 md:h-10 rounded-xl bg-white/80 backdrop-blur-sm border border-teal-200/60 text-teal-600 hover:text-teal-800 hover:bg-white hover:shadow-elegant transition-all duration-300 flex items-center justify-center"
+							class="w-10 h-10 md:w-10 md:h-10 rounded-xl bg-white/80 backdrop-blur-sm border border-neutral-200 text-neutral-500 hover:text-neutral-700 hover:bg-white hover:shadow-elegant transition-all duration-300 flex items-center justify-center"
 							on:click={() => $showVariableSelector = false}
 						>
 							<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -690,7 +652,7 @@
 
 				<!-- Year Selection -->
 				<div 
-					class="mt-6 p-4 bg-white/60 backdrop-blur-sm border border-teal-200/40 rounded-xl transition-all duration-300 ease-in-out overflow-hidden" 
+					class="mt-6 p-4 bg-white border border-neutral-200 rounded-xl transition-all duration-300 ease-in-out overflow-hidden" 
 					style="max-height: {hasHoveredYearSelector && isVariableAreaHovered ? '3rem' : '200px'};"
 					on:mouseenter={() => hasHoveredYearSelector = true}
 				>
@@ -707,14 +669,14 @@
 
 			<!-- Modal Content -->
 			<div
-				class="flex-1 overflow-y-auto p-4 md:p-6 bg-gradient-to-b from-white/50 to-teal-50/20"
+				class="flex-1 overflow-y-auto p-4 md:p-6 bg-white"
 				on:mouseenter={() => isVariableAreaHovered = true}
 				on:mouseleave={() => isVariableAreaHovered = false}
 			>
 				<!-- Search Bar -->
 				<div class="mb-6 relative">
 					<div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-						<svg class="h-5 w-5 text-teal-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+						<svg class="h-5 w-5 text-neutral-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
 						</svg>
 					</div>
@@ -722,12 +684,12 @@
 						bind:value={searchTerm}
 						type="text"
 						placeholder="Search variables..."
-						class="block w-full pl-12 pr-12 py-3 bg-white/80 backdrop-blur-sm border border-teal-200/60 rounded-xl text-sm placeholder-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 hover:bg-white hover:shadow-elegant transition-all duration-300 text-teal-800 font-medium"
+						class="block w-full pl-12 pr-12 py-3 bg-white border border-neutral-200 rounded-xl text-sm placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-700 hover:border-neutral-300 transition-all duration-300 text-neutral-800 font-medium"
 					/>
 					{#if searchTerm}
 						<button
 							on:click={() => searchTerm = ''}
-							class="absolute inset-y-0 right-0 pr-4 flex items-center text-teal-400 hover:text-teal-600 transition-colors"
+							class="absolute inset-y-0 right-0 pr-4 flex items-center text-neutral-400 hover:text-neutral-600 transition-colors"
 						>
 							<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -742,7 +704,7 @@
 						<div class="flex gap-2 mb-4">
 							<button
 								on:click={expandAllThemes}
-								class="text-xs font-medium text-teal-700 bg-white/80 hover:bg-white border border-teal-200/60 hover:border-teal-300 rounded-lg px-2 py-1 transition-all duration-200 hover:shadow-sm"
+								class="text-xs font-medium text-neutral-600 bg-white hover:bg-neutral-50 border border-neutral-200 hover:border-neutral-300 rounded-lg px-2 py-1 transition-all duration-200 hover:shadow-sm"
 							>
 								<svg class="w-3 h-3 mr-1 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>
@@ -751,7 +713,7 @@
 							</button>
 							<button
 								on:click={collapseAllThemes}
-								class="text-xs font-medium text-teal-700 bg-white/80 hover:bg-white border border-teal-200/60 hover:border-teal-300 rounded-lg px-2 py-1 transition-all duration-200 hover:shadow-sm"
+								class="text-xs font-medium text-neutral-600 bg-white hover:bg-neutral-50 border border-neutral-200 hover:border-neutral-300 rounded-lg px-2 py-1 transition-all duration-200 hover:shadow-sm"
 							>
 								<svg class="w-3 h-3 mr-1 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 9l6 6m0 0l6-6m-6 6V3"/>
@@ -763,29 +725,29 @@
 
 					<div class="space-y-4">
 						{#each Object.entries(filteredIndicatorsByTheme) as [theme, indicators]}
-							<div class="bg-white/80 backdrop-blur-sm border border-teal-200/40 rounded-xl overflow-hidden shadow-elegant hover:shadow-luxury transition-all duration-300">
+							<div class="bg-white border border-neutral-200 rounded-xl overflow-hidden shadow-elegant hover:shadow-luxury transition-all duration-300">
 								<!-- Theme Header -->
 								<button
 									on:click={() => toggleTheme(theme)}
-									class="w-full px-6 py-4 bg-gradient-to-r from-teal-50/60 to-emerald-50/60 hover:from-teal-100/60 hover:to-emerald-100/60 border-b border-teal-200/40 flex items-center justify-between text-left transition-all duration-300 group"
+									class="w-full px-6 py-4 bg-neutral-50 hover:bg-neutral-100 border-b border-neutral-200 flex items-center justify-between text-left transition-all duration-300 group"
 								>
 									<div class="flex items-center gap-3">
-										<div class="w-8 h-8 rounded-lg bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center shadow-elegant group-hover:shadow-luxury transition-all duration-300">
-											<svg class="w-4 h-4 text-teal-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<div class="w-8 h-8 rounded-lg bg-teal-700 flex items-center justify-center transition-all duration-300">
+											<svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{getThemeIcon(theme)}"/>
 											</svg>
 										</div>
 										<div>
-											<span class="font-bold text-teal-900 capitalize text-base">{theme}</span>
+											<span class="font-bold text-neutral-900 capitalize text-base">{theme}</span>
 											<div class="flex items-center gap-2 mt-0.5">
-												<span class="text-xs font-semibold text-teal-700 bg-gradient-to-r from-teal-100 to-teal-200 px-2 py-1 rounded-full border border-teal-300/50">
+												<span class="text-xs font-semibold text-neutral-600 bg-neutral-100 px-2 py-1 rounded-full border border-neutral-300">
 													{indicators.length} variable{indicators.length === 1 ? '' : 's'}
 												</span>
 											</div>
 										</div>
 									</div>
 									<svg 
-										class="h-5 w-5 text-teal-600 transition-transform duration-300 {expandedThemes.has(theme) ? 'rotate-180' : ''}"
+										class="h-5 w-5 text-neutral-500 transition-transform duration-300 {expandedThemes.has(theme) ? 'rotate-180' : ''}"
 										fill="none" 
 										viewBox="0 0 24 24" 
 										stroke="currentColor"
@@ -796,13 +758,13 @@
 
 								<!-- Theme Content -->
 								{#if expandedThemes.has(theme)}
-									<div class="divide-y divide-teal-100/50">
+									<div class="divide-y divide-neutral-100">
 										{#each indicators as indicator}
 											{@const isSelected = $currentSelectedIndicators.includes(indicator.id)}
 											{@const isAvailable = isVariableAvailable(indicator)}
 											{@const availabilityMessage = getAvailabilityMessage(indicator)}
 											<label
-												class="flex items-start gap-3 md:gap-4 p-4 md:p-5 transition-all duration-300 group {isAvailable ? 'hover:bg-gradient-to-r hover:from-teal-50/40 hover:to-emerald-50/40 cursor-pointer' : 'cursor-not-allowed opacity-50'}"
+												class="flex items-start gap-3 md:gap-4 p-4 md:p-5 transition-all duration-300 group {isAvailable ? 'hover:bg-neutral-50 cursor-pointer' : 'cursor-not-allowed opacity-50'}"
 												title={availabilityMessage || undefined}
 												on:click={(event) => handleLabelClick(event, indicator)}
 											>
@@ -825,11 +787,11 @@
 												</div>
 												<div class="flex-1 min-w-0">
 													<div class="flex items-center gap-3 mb-2">
-														<span class="font-semibold text-sm transition-colors {isAvailable ? 'text-teal-900 group-hover:text-teal-800' : 'text-teal-500'}">
+														<span class="font-semibold text-sm transition-colors {isAvailable ? 'text-neutral-900 group-hover:text-neutral-800' : 'text-neutral-400'}">
 															{indicator.name}
 														</span>
 														{#if isSelected && isAvailable}
-															<div class="flex items-center gap-1 bg-gradient-to-r from-teal-100 to-teal-200 text-teal-800 px-2 py-1 rounded-full border border-teal-300/50">
+															<div class="flex items-center gap-1 bg-neutral-100 text-neutral-700 px-2 py-1 rounded-full border border-neutral-300">
 																<svg class="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
 																	<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
 																</svg>
@@ -837,24 +799,18 @@
 															</div>
 														{/if}
 													</div>
-													<p class="text-sm mb-3 leading-relaxed {isAvailable ? 'text-teal-700' : 'text-teal-400'}">
+													<p class="text-sm mb-3 leading-relaxed {isAvailable ? 'text-neutral-700' : 'text-neutral-400'}">
 														{indicator.description}
 													</p>
 													<div class="flex flex-col gap-2">
 														<div class="flex items-center gap-3 text-xs">
-															<div class="flex items-center gap-1 bg-white/60 px-2 py-1 rounded-lg border {isAvailable ? 'text-teal-600 border-teal-200/40' : 'text-teal-400 border-teal-200/20'}">
-																<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-																	<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
-																</svg>
-																<span class="font-medium">ID: {indicator.id}</span>
-															</div>
-															<div class="flex items-center gap-1 bg-white/60 px-2 py-1 rounded-lg border {isAvailable ? 'text-teal-600 border-teal-200/40' : 'text-teal-400 border-teal-200/20'}">
+															<div class="flex items-center gap-1 bg-white/60 px-2 py-1 rounded-lg border {isAvailable ? 'text-neutral-700 border-neutral-200' : 'text-neutral-400 border-neutral-200/50'}">
 																<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 																	<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
 																</svg>
 																<span class="font-medium">{indicator.available_years.length} years</span>
 															</div>
-															<div class="flex items-center gap-1 bg-white/60 px-2 py-1 rounded-lg border {isAvailable ? 'text-teal-600 border-teal-200/40' : 'text-teal-400 border-teal-200/20'}">
+															<div class="flex items-center gap-1 bg-white/60 px-2 py-1 rounded-lg border {isAvailable ? 'text-neutral-700 border-neutral-200' : 'text-neutral-400 border-neutral-200/50'}">
 																<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 																	<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
 																</svg>
@@ -878,37 +834,37 @@
 				{:else if searchTerm}
 					<!-- No Search Results -->
 					<div class="text-center py-16">
-						<div class="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center shadow-elegant">
-							<svg class="w-10 h-10 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+						<div class="w-20 h-20 mx-auto mb-6 rounded-2xl bg-neutral-100 flex items-center justify-center shadow-elegant">
+							<svg class="w-10 h-10 text-neutral-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
 							</svg>
 						</div>
-						<h3 class="text-lg font-bold text-teal-900 mb-2">No variables found</h3>
-						<p class="text-sm text-teal-700 max-w-md mx-auto">
+						<h3 class="text-lg font-bold text-neutral-900 mb-2">No variables found</h3>
+						<p class="text-sm text-neutral-600 max-w-md mx-auto">
 							Try adjusting your search terms or browse by category to find the variables you need.
 						</p>
 					</div>
 				{:else}
 					<!-- Loading State -->
 					<div class="text-center py-16">
-						<div class="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center shadow-elegant">
-							<div class="animate-spin rounded-full h-10 w-10 border-4 border-teal-300 border-t-teal-600"></div>
+						<div class="w-20 h-20 mx-auto mb-6 rounded-2xl bg-neutral-100 flex items-center justify-center shadow-elegant">
+							<div class="animate-spin rounded-full h-10 w-10 border-4 border-neutral-300 border-t-neutral-600"></div>
 						</div>
-						<h3 class="text-lg font-bold text-teal-900 mb-2">Loading variables...</h3>
-						<p class="text-sm text-teal-700">Please wait while we fetch the available data variables.</p>
+						<h3 class="text-lg font-bold text-neutral-900 mb-2">Loading variables...</h3>
+						<p class="text-sm text-neutral-600">Please wait while we fetch the available data variables.</p>
 					</div>
 				{/if}
 			</div>
 
 			<!-- Modal Footer -->
-			<div class="p-6 border-t border-teal-200/40 bg-gradient-to-r from-white via-teal-50/20 to-white rounded-b-2xl">
+			<div class="p-6 border-t border-neutral-200 bg-white rounded-b-2xl">
 				<div class="flex items-center justify-between">
-					<div class="text-sm text-teal-700 space-y-1">
+					<div class="text-sm text-neutral-600 space-y-1">
 						{#if $selectedIndicatorCount > 0}
 							<div class="flex items-center gap-2">
 								<div class="w-3 h-3 bg-teal-600 rounded-full animate-pulse"></div>
 								<span class="font-semibold">
-									<strong class="text-teal-900">{$selectedIndicatorCount}</strong> variable{$selectedIndicatorCount === 1 ? '' : 's'} selected for analysis
+									<strong class="text-neutral-900">{$selectedIndicatorCount}</strong> variable{$selectedIndicatorCount === 1 ? '' : 's'} selected for analysis
 								</span>
 							</div>
 						{:else}
@@ -919,11 +875,11 @@
 						{/if}
 						{#if $currentYears.length > 0}
 							<div class="flex items-center gap-2">
-								<svg class="w-3 h-3 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<svg class="w-3 h-3 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
 								</svg>
 								<span class="font-medium">
-									<strong class="text-teal-900">{$currentYears.length}</strong> year{$currentYears.length === 1 ? '' : 's'} selected: {$currentYears.sort((a, b) => a - b).join(', ')}
+									<strong class="text-neutral-900">{$currentYears.length}</strong> year{$currentYears.length === 1 ? '' : 's'} selected: {$currentYears.sort((a, b) => a - b).join(', ')}
 								</span>
 							</div>
 						{/if}

@@ -6,7 +6,7 @@
 	export let className: string = '';
 	export let animate: boolean = true;
 
-	const baseClasses = 'bg-gradient-to-r from-slate-200 via-slate-100 to-slate-200 rounded';
+	const baseClasses = 'bg-gradient-to-r from-neutral-200 via-neutral-100 to-neutral-200 rounded';
 	const animationClasses = animate ? 'bg-[length:200%_100%] animate-shimmer' : 'animate-skeleton-pulse';
 	
 	$: skeletonClasses = `${baseClasses} ${animationClasses} ${className}`;
@@ -53,7 +53,7 @@
 {:else if variant === 'table'}
 	<div class="bg-white rounded-2xl shadow-elegant overflow-hidden">
 		<!-- Table Header -->
-		<div class="bg-slate-50 px-6 py-4 border-b border-slate-200">
+		<div class="bg-neutral-50 px-6 py-4 border-b border-neutral-200">
 			<div class="flex justify-between items-center">
 				<div class="{skeletonClasses} h-6 w-32"></div>
 				<div class="{skeletonClasses} h-8 w-24 rounded-lg"></div>
@@ -68,7 +68,7 @@
 			</div>
 			
 			<!-- Table Headers -->
-			<div class="grid grid-cols-4 gap-4 mb-4 pb-3 border-b border-slate-200">
+			<div class="grid grid-cols-4 gap-4 mb-4 pb-3 border-b border-neutral-200">
 				{#each Array(4) as _, i}
 					<div 
 						class="{skeletonClasses} h-4 w-full"
@@ -79,7 +79,7 @@
 			
 			<!-- Table Rows -->
 			{#each Array(5) as _, rowIndex}
-				<div class="grid grid-cols-4 gap-4 py-3 border-b border-slate-100">
+				<div class="grid grid-cols-4 gap-4 py-3 border-b border-neutral-100">
 					{#each Array(4) as _, colIndex}
 						<div 
 							class="{skeletonClasses} h-4 {colIndex === 0 ? 'w-3/4' : colIndex === 3 ? 'w-1/2' : 'w-full'}"

@@ -18,7 +18,7 @@
 	} from '$lib/stores/unifiedFilters';
 	import { geographies } from '$lib/stores/metadata';
 	import { showVariableSelector } from '$lib/stores/interactiveSteps';
-	import { US_STATES } from '$lib/constants/states';
+	import { US_STATES, getStateNameByCode } from '$lib/constants/states';
 	import { crossfade } from 'svelte/transition';
 	import { quintOut } from 'svelte/easing';
 	import Legend from './Legend.svelte';
@@ -50,6 +50,11 @@
 	let geometryCache = new Map<string, any>(); // Cache key: `${geo_level}_${year}_${state_filter || 'all'}`
 	let currentGeometryKey: string | null = null;
 	let isGeometryCached = false;
+
+	// Request management - cancel stale requests
+	let currentAbortController: AbortController | null = null;
+	let fetchRequestId = 0;
+	let fetchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 	
 	// Map display state (separate from global selection)
 	let mapDisplayYear: number | null = null;
@@ -67,6 +72,128 @@
 		feature: null,
 		position: { x: 0, y: 0 }
 	};
+
+	// Geography search state
+	let geoSearchQuery = '';
+	let geoSearchResults: Array<{ geo_id: string; geo_name: string; state: string }> = [];
+	let geoSearchOpen = false;
+	let highlightedGeoId: string | null = null;
+	let highlightedGeoName: string | null = null;
+	let geoSearchInputEl: HTMLInputElement;
+	let currentGeoJsonData: any = null; // Keep reference for search
+
+	function getStateName(geoId: string): string {
+		const fips = geoId.substring(0, 2);
+		return getStateNameByCode(fips) || '';
+	}
+
+	function searchGeographies(query: string) {
+		if (!query || query.length < 2 || !currentGeoJsonData?.features) {
+			geoSearchResults = [];
+			return;
+		}
+
+		const lower = query.toLowerCase();
+		const seen = new Set<string>();
+		geoSearchResults = currentGeoJsonData.features
+			.filter((f: any) => {
+				const name = f.properties?.geo_name || f.properties?.name || '';
+				const id = f.properties?.geo_id || '';
+				if (seen.has(id)) return false;
+				const stateName = getStateName(id);
+				const match = name.toLowerCase().includes(lower) || id.includes(lower) || stateName.toLowerCase().includes(lower);
+				if (match) seen.add(id);
+				return match;
+			})
+			.slice(0, 20)
+			.map((f: any) => {
+				const id = f.properties.geo_id;
+				return {
+					geo_id: id,
+					geo_name: f.properties.geo_name || f.properties.name || id,
+					state: getStateName(id)
+				};
+			});
+	}
+
+	function selectSearchResult(result: { geo_id: string; geo_name: string; state: string }) {
+		highlightedGeoId = result.geo_id;
+		highlightedGeoName = result.geo_name;
+		applySearchHighlight();
+		flyToGeo(result.geo_id);
+		geoSearchQuery = '';
+		geoSearchResults = [];
+		geoSearchOpen = false;
+	}
+
+	function clearSearchHighlight() {
+		highlightedGeoId = null;
+		highlightedGeoName = null;
+		applySearchHighlight();
+	}
+
+	function applySearchHighlight() {
+		if (!map) return;
+		if (map.getLayer('search-highlight')) map.removeLayer('search-highlight');
+		if (map.getLayer('search-highlight-stroke')) map.removeLayer('search-highlight-stroke');
+
+		if (!highlightedGeoId) return;
+
+		const filterExpr: any = ['==', ['get', 'geo_id'], highlightedGeoId];
+
+		map.addLayer({
+			id: 'search-highlight',
+			type: 'fill',
+			source: 'choropleth-data',
+			paint: {
+				'fill-color': 'rgba(245, 158, 11, 0.35)',
+			},
+			filter: filterExpr
+		});
+
+		map.addLayer({
+			id: 'search-highlight-stroke',
+			type: 'line',
+			source: 'choropleth-data',
+			paint: {
+				'line-color': 'rgba(245, 158, 11, 1)',
+				'line-width': 2.5,
+			},
+			filter: filterExpr
+		});
+	}
+
+	function flyToGeo(geoId: string) {
+		if (!map || !currentGeoJsonData?.features) return;
+
+		const feature = currentGeoJsonData.features.find((f: any) => f.properties?.geo_id === geoId);
+		if (!feature) return;
+
+		const coords: number[][] = [];
+		function extractCoords(geom: any) {
+			if (Array.isArray(geom[0]) && Array.isArray(geom[0][0])) {
+				geom.forEach(extractCoords);
+			} else if (Array.isArray(geom[0])) {
+				coords.push(...geom);
+			}
+		}
+		if (feature.geometry?.coordinates) {
+			extractCoords(feature.geometry.coordinates);
+		}
+
+		if (coords.length > 0) {
+			let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
+			for (const c of coords) {
+				if (c[0] < minLng) minLng = c[0];
+				if (c[0] > maxLng) maxLng = c[0];
+				if (c[1] < minLat) minLat = c[1];
+				if (c[1] > maxLat) maxLat = c[1];
+			}
+			map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 80, maxZoom: 12, duration: 1000 });
+		}
+	}
+
+	$: searchGeographies(geoSearchQuery);
 
 	// Initialize map display values from store
 	$: mapDisplayYear = $currentMapDisplayYear;
@@ -91,6 +218,46 @@
 		// Fetch new map data for the selected indicator
 		if ($currentGeoLevel && mapDisplayYear) {
 			fetchMapData(indicatorId, $currentGeoLevel, mapDisplayYear);
+		}
+	}
+
+	// Handle value filter from legend slider
+	function handleValueFilter(event: CustomEvent) {
+		if (!map || !map.getLayer('choropleth-layer')) return;
+
+		const filter = event.detail;
+		if (filter === null) {
+			// Reset to default opacity
+			map.setPaintProperty('choropleth-layer', 'fill-opacity', 0.8);
+			map.setPaintProperty('choropleth-stroke', 'line-opacity', 0.8);
+		} else {
+			// Dim features outside the value range
+			const opacityExpr: any = [
+				'case',
+				// No data features: always dim
+				['==', ['get', 'bin'], -1], 0.05,
+				// Features with value in range: full opacity
+				['all',
+					['has', 'value'],
+					['!=', ['typeof', ['get', 'value']], 'string'],
+					['>=', ['get', 'value'], filter.min],
+					['<=', ['get', 'value'], filter.max]
+				], 0.8,
+				// Out of range: very dim
+				0.05
+			];
+			map.setPaintProperty('choropleth-layer', 'fill-opacity', opacityExpr);
+			map.setPaintProperty('choropleth-stroke', 'line-opacity', [
+				'case',
+				['==', ['get', 'bin'], -1], 0.1,
+				['all',
+					['has', 'value'],
+					['!=', ['typeof', ['get', 'value']], 'string'],
+					['>=', ['get', 'value'], filter.min],
+					['<=', ['get', 'value'], filter.max]
+				], 0.8,
+				0.1
+			]);
 		}
 	}
 
@@ -158,9 +325,9 @@
 		// Draw subtitle with geography info
 		const geoLevelName = $geographies[$currentGeoLevel || '']?.name || $currentGeoLevel || 'Unknown Geography';
 		let subtitle = `Geography: ${geoLevelName}`;
-		if ($currentGeoFilter) {
-			const stateName = US_STATES.find(state => state.code === $currentGeoFilter)?.name || $currentGeoFilter;
-			subtitle += ` (${stateName})`;
+		if ($currentGeoFilter && $currentGeoFilter.length > 0) {
+			const stateNames = $currentGeoFilter.map(code => US_STATES.find(s => s.code === code)?.name || code);
+			subtitle += ` (${stateNames.join(', ')})`;
 		}
 		
 		ctx.font = '16px Arial, sans-serif';
@@ -242,13 +409,13 @@
 	const MAPBOX_TOKEN = PUBLIC_MAPBOX_TOKEN;
 	const MAPBOX_STYLE = 'mapbox://styles/jordanabb/cmb5puoou002f01qt4r796okw';
 	
-	// Choropleth colors (teal palette to match app theme)
+	// Choropleth colors (teal sequential palette)
 	const CHOROPLETH_PALETTE = [
-		'#f0fdfa',
-		'#ccfbf1', 
-		'#5eead4',
-		'#14b8a6',
-		'#0f766e'
+		'#E4F7F4',  // Teal-10
+		'#6DDED1',  // Teal-30
+		'#08ACA6',  // Teal-50
+		'#027272',  // Teal-70
+		'#023A3E'   // Teal-90
 	];
 	const NO_DATA_COLOR = '#999999';
 	
@@ -355,348 +522,241 @@
 	
 	// Clean up map on component destroy
 	onDestroy(() => {
-		if (map) {
-			map.remove();
-		}
+		if (map) map.remove();
+		if (fetchDebounceTimer) clearTimeout(fetchDebounceTimer);
+		if (currentAbortController) currentAbortController.abort();
 	});
 	
-	// Reactive statement to fetch data when filters change (including state filter)
-	$: if (browser && map && $filtersInitialized && $currentGeoLevel && $currentPrimaryYear) {
-		// Check if we have a valid primary indicator for data visualization
-		const hasPrimaryIndicator = $currentPrimaryIndicator && 
-									typeof $currentPrimaryIndicator === 'string';
-		
-		// Check if we have selected indicators (for analysis)
-		const hasSelectedIndicators = $currentSelectedIndicators && 
-									  $currentSelectedIndicators.length > 0;
-		
-		// Determine which indicator to display on the map
-		let indicatorToDisplay = null;
-		if (hasPrimaryIndicator) {
-			// Use primary indicator if available
-			indicatorToDisplay = $currentPrimaryIndicator;
-		} else if (hasSelectedIndicators) {
-			// Use first selected indicator if no primary indicator
-			indicatorToDisplay = $currentSelectedIndicators[0];
-		}
-		
-		// Check if we have valid geographic and temporal context
-		const hasGeoContext = $currentGeoLevel && 
-							   $currentPrimaryYear && 
-							   typeof $currentGeoLevel === 'string' && 
-							   typeof $currentPrimaryYear === 'number';
-		
-		if (hasGeoContext) {
-			console.log('Map: Loading map with context:', {
-				primaryIndicator: $currentPrimaryIndicator,
-				selectedIndicators: $currentSelectedIndicators,
-				indicatorToDisplay,
-				geoLevel: $currentGeoLevel,
-				year: $currentPrimaryYear,
-				stateFilter: $currentGeoFilter
-			});
-			
-			// Ensure map is loaded before fetching data
-			if (map.loaded()) {
+	// Debounced map data loader — single reactive block for all filter changes
+	function debouncedFetchMap() {
+		if (fetchDebounceTimer) clearTimeout(fetchDebounceTimer);
+		fetchDebounceTimer = setTimeout(() => {
+			if (!browser || !map || !$currentGeoLevel || !$currentPrimaryYear) return;
+
+			let indicatorToDisplay: string | null = null;
+			if ($currentPrimaryIndicator && typeof $currentPrimaryIndicator === 'string') {
+				indicatorToDisplay = $currentPrimaryIndicator;
+			} else if ($currentSelectedIndicators && $currentSelectedIndicators.length > 0) {
+				indicatorToDisplay = $currentSelectedIndicators[0];
+			}
+
+			const doFetch = () => {
 				if (indicatorToDisplay) {
-					// Fetch data with the determined indicator
 					fetchMapData(indicatorToDisplay, $currentGeoLevel, $currentPrimaryYear);
 				} else {
-					// Show just geographic boundaries without data
 					fetchGeographicBoundaries($currentGeoLevel, $currentPrimaryYear);
 				}
+			};
+
+			if (map.loaded()) {
+				doFetch();
 			} else {
-				map.once('load', () => {
-					if (indicatorToDisplay) {
-						fetchMapData(indicatorToDisplay, $currentGeoLevel, $currentPrimaryYear);
-					} else {
-						fetchGeographicBoundaries($currentGeoLevel, $currentPrimaryYear);
-					}
-				});
+				map.once('load', doFetch);
 			}
-		} else {
-			console.warn('Invalid geographic context:', { 
-				geoLevel: $currentGeoLevel, 
-				year: $currentPrimaryYear 
-			});
-		}
+		}, 150);
 	}
 
-	// Separate reactive statement for state filter changes to trigger map refresh
-	$: if (browser && map && $currentGeoLevel && $currentPrimaryYear && $currentGeoFilter !== undefined) {
-		// Determine which indicator to display (same logic as main reactive statement)
-		let indicatorToDisplay = null;
-		if ($currentPrimaryIndicator) {
-			indicatorToDisplay = $currentPrimaryIndicator;
-		} else if ($currentSelectedIndicators && $currentSelectedIndicators.length > 0) {
-			indicatorToDisplay = $currentSelectedIndicators[0];
-		}
-		
-		// Trigger refresh when state filter changes (including when it's cleared)
-		if (map.loaded()) {
-			if (indicatorToDisplay) {
-				fetchMapData(indicatorToDisplay, $currentGeoLevel, $currentPrimaryYear);
-			} else {
-				fetchGeographicBoundaries($currentGeoLevel, $currentPrimaryYear);
-			}
-		}
+	// Single reactive statement — triggers on any filter change
+	$: if (browser && map && $filtersInitialized && $currentGeoLevel && $currentPrimaryYear) {
+		// Touch all reactive dependencies so Svelte tracks them
+		void $currentPrimaryIndicator;
+		void $currentSelectedIndicators;
+		void $currentGeoFilter;
+		debouncedFetchMap();
 	}
 	
 	// Function to generate cache key for geometries
-	function getGeometryCacheKey(geoLevel: string, year: number, stateFilter: string | null): string {
-		return `${geoLevel}_${year}_${stateFilter || 'all'}`;
+	function getGeometryCacheKey(geoLevel: string, year: number, stateFilter: string[]): string {
+		return `${geoLevel}_${year}_${stateFilter.length > 0 ? stateFilter.sort().join(',') : 'all'}`;
 	}
 	
 	// Function to fetch geometries (with caching)
-	async function fetchGeometries(geoLevel: string, year: number): Promise<any> {
+	async function fetchGeometries(geoLevel: string, year: number, signal?: AbortSignal): Promise<any> {
 		const cacheKey = getGeometryCacheKey(geoLevel, year, $currentGeoFilter);
-		
+
 		// Check if geometries are already cached
 		if (geometryCache.has(cacheKey)) {
-			console.log('Using cached geometries for:', cacheKey);
 			return geometryCache.get(cacheKey);
 		}
-		
-		console.log('Fetching new geometries for:', cacheKey);
-		
+
 		const params = new URLSearchParams({
 			geo_level: geoLevel,
 			year: year.toString()
 		});
-		
+
 		// Add state filter if selected
-		if ($currentGeoFilter) {
-			params.set('state_filter', $currentGeoFilter);
+		if ($currentGeoFilter && $currentGeoFilter.length > 0) {
+			params.set('state_filter', $currentGeoFilter.join(','));
 		}
-		
-		const response = await fetch(`/api/geometries?${params}`);
-		
+
+		const response = await fetch(`/api/geometries?${params}`, { signal });
+
 		if (!response.ok) {
 			if (response.status === 404) {
 				throw new Error('No geographic data available for the selected filters');
 			}
 			throw new Error(`HTTP ${response.status}: ${response.statusText}`);
 		}
-		
+
 		const geometryData = await response.json();
-		
+
 		// Cache the geometries
 		geometryCache.set(cacheKey, geometryData);
-		
+
 		// Limit cache size to prevent memory issues
 		if (geometryCache.size > 10) {
 			const firstKey = geometryCache.keys().next().value;
 			geometryCache.delete(firstKey);
 		}
-		
+
 		return geometryData;
 	}
-	
+
 	// Function to fetch indicator data only
-	async function fetchIndicatorData(indicator: string, geoLevel: string, year: number): Promise<any> {
-		console.log('Fetching indicator data for:', indicator);
-		
+	async function fetchIndicatorData(indicator: string, geoLevel: string, year: number, signal?: AbortSignal): Promise<any> {
 		const params = new URLSearchParams({
 			indicator,
 			geo_level: geoLevel,
 			year: year.toString()
 		});
-		
+
 		// Add state filter if selected
-		if ($currentGeoFilter) {
-			params.set('state_filter', $currentGeoFilter);
+		if ($currentGeoFilter && $currentGeoFilter.length > 0) {
+			params.set('state_filter', $currentGeoFilter.join(','));
 		}
-		
-		const response = await fetch(`/api/indicator-data?${params}`);
-		
+
+		const response = await fetch(`/api/indicator-data?${params}`, { signal });
+
 		if (!response.ok) {
 			if (response.status === 404) {
 				throw new Error('No data available for the selected indicator');
 			}
 			throw new Error(`HTTP ${response.status}: ${response.statusText}`);
 		}
-		
+
 		return await response.json();
 	}
 	
 	// Function to fetch just geographic boundaries without indicator data
 	async function fetchGeographicBoundaries(geoLevel: string, year: number) {
 		if (!geoLevel || !year) return;
-		
+
+		// Cancel any in-flight request
+		if (currentAbortController) {
+			currentAbortController.abort();
+		}
+		const abortController = new AbortController();
+		currentAbortController = abortController;
+		const thisRequestId = ++fetchRequestId;
+
 		isLoading = true;
 		error = null;
-		
+
 		try {
 			const geometryCacheKey = getGeometryCacheKey(geoLevel, year, $currentGeoFilter);
 			const needsNewGeometry = currentGeometryKey !== geometryCacheKey;
-			
-			// Store debug info
-			debugInfo = {
-				requestParams: {
-					indicator: null,
-					geo_level: geoLevel,
-					year,
-					state_filter: $currentGeoFilter || null
-				},
-				timestamp: new Date().toISOString(),
-				cacheInfo: {
-					geometryCacheKey,
-					currentGeometryKey,
-					needsNewGeometry,
-					cacheSize: geometryCache.size
-				}
-			};
-			
-			console.log('Fetching geographic boundaries only:', debugInfo);
-			
+
 			let geometryData: any;
-			
+
 			if (needsNewGeometry) {
-				// Fetch geometries
-				console.log('Fetching new geometries for boundaries');
-				geometryData = await fetchGeometries(geoLevel, year);
+				geometryData = await fetchGeometries(geoLevel, year, abortController.signal);
 				currentGeometryKey = geometryCacheKey;
 				isGeometryCached = true;
 			} else {
-				// Use cached geometries
-				console.log('Using cached geometries for boundaries');
 				geometryData = geometryCache.get(geometryCacheKey);
 			}
-			
-			// Create boundaries-only data (no indicator data)
+
+			// Discard if a newer request has been made
+			if (thisRequestId !== fetchRequestId) return;
+
 			const boundariesData = {
 				geoJson: geometryData.geoJson,
-				data: [], // No indicator data
-				legend: [] // No legend
+				data: [],
+				legend: []
 			};
-			
-			// Update debug info with response
-			debugInfo = {
-				...debugInfo,
-				responseData: {
-					geometryFeatures: geometryData.geoJson?.features?.length || 0,
-					indicatorDataPoints: 0,
-					legendEntries: 0
-				},
-				performance: {
-					usedCache: !needsNewGeometry,
-					cacheHit: isGeometryCached && !needsNewGeometry
-				}
-			};
-			
-			console.log('Geographic boundaries loaded:', debugInfo);
-			
-			// Update component state
+
 			mapData = boundariesData;
-			legendData = []; // No legend for boundaries-only view
-			
-			// Update map with boundaries only
+			legendData = [];
 			updateBoundariesOnly(boundariesData);
-			
+
 		} catch (err) {
+			if (err instanceof DOMException && err.name === 'AbortError') return;
+			if (thisRequestId !== fetchRequestId) return;
 			console.error('Error fetching geographic boundaries:', err);
 			error = err instanceof Error ? err.message : 'Failed to load geographic boundaries';
 			mapData = null;
 			legendData = [];
-			
-			// Update debug info with error
-			debugInfo = {
-				...debugInfo,
-				error: err instanceof Error ? err.message : 'Unknown error',
-				errorStack: err instanceof Error ? err.stack : undefined
-			};
 		} finally {
-			isLoading = false;
+			if (thisRequestId === fetchRequestId) {
+				isLoading = false;
+			}
 		}
 	}
 
 	// Optimized function to fetch map data with smart caching
 	async function fetchMapData(indicator: string, geoLevel: string, year: number) {
 		if (!indicator || !geoLevel || !year) return;
-		
+
+		// Cancel any in-flight request
+		if (currentAbortController) {
+			currentAbortController.abort();
+		}
+		const abortController = new AbortController();
+		currentAbortController = abortController;
+		const thisRequestId = ++fetchRequestId;
+
 		isLoading = true;
 		error = null;
-		
+
 		try {
 			const geometryCacheKey = getGeometryCacheKey(geoLevel, year, $currentGeoFilter);
 			const needsNewGeometry = currentGeometryKey !== geometryCacheKey;
-			
-			// Store debug info
-			debugInfo = {
-				requestParams: {
-					indicator,
-					geo_level: geoLevel,
-					year,
-					state_filter: $currentGeoFilter || null
-				},
-				timestamp: new Date().toISOString(),
-				cacheInfo: {
-					geometryCacheKey,
-					currentGeometryKey,
-					needsNewGeometry,
-					cacheSize: geometryCache.size
-				}
-			};
-			
-			console.log('Optimized map data fetch:', debugInfo);
-			
+
 			let geometryData: any;
 			let indicatorData: any;
-			
+
 			if (needsNewGeometry) {
-				// Need to fetch both geometries and indicator data
-				console.log('Fetching both geometries and indicator data');
 				[geometryData, indicatorData] = await Promise.all([
-					fetchGeometries(geoLevel, year),
-					fetchIndicatorData(indicator, geoLevel, year)
+					fetchGeometries(geoLevel, year, abortController.signal),
+					fetchIndicatorData(indicator, geoLevel, year, abortController.signal)
 				]);
 				currentGeometryKey = geometryCacheKey;
 				isGeometryCached = true;
 			} else {
-				// Geometries are cached, only fetch indicator data
-				console.log('Using cached geometries, fetching only indicator data');
 				geometryData = geometryCache.get(geometryCacheKey);
-				indicatorData = await fetchIndicatorData(indicator, geoLevel, year);
+				indicatorData = await fetchIndicatorData(indicator, geoLevel, year, abortController.signal);
 			}
-			
+
+			// Discard if a newer request has been made
+			if (thisRequestId !== fetchRequestId) return;
+
 			// Combine geometry and indicator data
 			const combinedData = {
 				geoJson: geometryData.geoJson,
 				data: indicatorData.data,
 				legend: indicatorData.legend
 			};
-			
-			// Update debug info with response
-			debugInfo = {
-				...debugInfo,
-				responseData: {
-					geometryFeatures: geometryData.geoJson?.features?.length || 0,
-					indicatorDataPoints: indicatorData.data?.length || 0,
-					legendEntries: indicatorData.legend?.length || 0
-				},
-				performance: {
-					usedCache: !needsNewGeometry,
-					cacheHit: isGeometryCached && !needsNewGeometry
-				}
-			};
-			
-			console.log('Optimized map data received:', debugInfo);
-			
+
 			// Update component state
 			mapData = combinedData;
-			
+
 			// Generate legend data using the actual map colors
 			legendData = generateLegendFromMapColors(indicatorData.legend || []);
-			
-			// Update map with new data
-			updateMapData(combinedData);
-			
+
+			// Update map with new data (only fit bounds when geometry changed)
+			updateMapData(combinedData, needsNewGeometry);
+
 		} catch (err) {
-			console.error('Error fetching optimized map data:', err);
+			// Ignore aborted requests
+			if (err instanceof DOMException && err.name === 'AbortError') return;
+			// Ignore if a newer request superseded this one
+			if (thisRequestId !== fetchRequestId) return;
+
+			console.error('Error fetching map data:', err);
 			error = err instanceof Error ? err.message : 'Failed to load map data';
 			mapData = null;
 			legendData = [];
-			
+
 			// Update debug info with error
 			debugInfo = {
 				...debugInfo,
@@ -704,16 +764,20 @@
 				errorStack: err instanceof Error ? err.stack : undefined
 			};
 		} finally {
-			isLoading = false;
+			if (thisRequestId === fetchRequestId) {
+				isLoading = false;
+			}
 		}
 	}
-	
+
 	// Function to update map with boundaries only (no data visualization)
 	function updateBoundariesOnly(data: any) {
 		if (!map || !data) return;
-		
+
 		try {
 			// Remove existing layers and sources
+			if (map.getLayer('search-highlight')) map.removeLayer('search-highlight');
+			if (map.getLayer('search-highlight-stroke')) map.removeLayer('search-highlight-stroke');
 			if (map.getLayer('choropleth-layer')) {
 				map.removeLayer('choropleth-layer');
 			}
@@ -748,6 +812,7 @@
 			};
 			
 			// Add source
+			currentGeoJsonData = geoJsonWithBoundaries;
 			map.addSource('choropleth-data', {
 				type: 'geojson',
 				data: geoJsonWithBoundaries
@@ -786,7 +851,7 @@
 					const feature = e.features[0];
 					
 					// Update hover state
-					if (hoveredFeatureId !== null) {
+					if (hoveredFeatureId !== null && hoveredFeatureId !== undefined) {
 						map.setFeatureState(
 							{ source: 'choropleth-data', id: hoveredFeatureId },
 							{ hover: false }
@@ -794,10 +859,12 @@
 					}
 					
 					hoveredFeatureId = feature.id;
-					map.setFeatureState(
-						{ source: 'choropleth-data', id: hoveredFeatureId },
-						{ hover: true }
-					);
+					if (hoveredFeatureId !== null && hoveredFeatureId !== undefined) {
+						map.setFeatureState(
+							{ source: 'choropleth-data', id: hoveredFeatureId },
+							{ hover: true }
+						);
+					}
 					
 					// Show basic hover tooltip with just geographic info
 					const rect = mapContainer.getBoundingClientRect();
@@ -865,24 +932,29 @@
 				};
 			});
 			
-			// Fit map to data bounds
+			// Fit map to bounds
 			if (geoJsonWithBoundaries.features.length > 0) {
-				const bounds = new mapboxgl.LngLatBounds();
-				geoJsonWithBoundaries.features.forEach((feature: any) => {
-					if (feature.geometry.type === 'Polygon') {
-						feature.geometry.coordinates[0].forEach((coord: number[]) => {
-							bounds.extend(coord);
-						});
-					} else if (feature.geometry.type === 'MultiPolygon') {
-						feature.geometry.coordinates.forEach((polygon: number[][][]) => {
-							polygon[0].forEach((coord: number[]) => {
+				if ($currentGeoFilter && $currentGeoFilter.length > 0) {
+					// State filter active: fit to the state's actual bounds
+					const bounds = new mapboxgl.LngLatBounds();
+					geoJsonWithBoundaries.features.forEach((feature: any) => {
+						if (feature.geometry.type === 'Polygon') {
+							feature.geometry.coordinates[0].forEach((coord: number[]) => {
 								bounds.extend(coord);
 							});
-						});
-					}
-				});
-				
-				map.fitBounds(bounds, { padding: 50 });
+						} else if (feature.geometry.type === 'MultiPolygon') {
+							feature.geometry.coordinates.forEach((polygon: number[][][]) => {
+								polygon[0].forEach((coord: number[]) => {
+									bounds.extend(coord);
+								});
+							});
+						}
+					});
+					map.fitBounds(bounds, { padding: 50 });
+				} else {
+					// National view: reset to default US center/zoom
+					map.jumpTo({ center: [-98.5, 39.8], zoom: 3 });
+				}
 			}
 			
 		} catch (err) {
@@ -892,11 +964,13 @@
 	}
 
 	// Function to update map with new data
-	function updateMapData(data: any) {
+	function updateMapData(data: any, fitToData: boolean = true) {
 		if (!map || !data) return;
-		
+
 		try {
 			// Remove existing layers and sources
+			if (map.getLayer('search-highlight')) map.removeLayer('search-highlight');
+			if (map.getLayer('search-highlight-stroke')) map.removeLayer('search-highlight-stroke');
 			if (map.getLayer('choropleth-layer')) {
 				map.removeLayer('choropleth-layer');
 			}
@@ -964,6 +1038,7 @@
 			console.log('Feature matching results:', debugInfo.dataMatching);
 			
 			// Add source
+			currentGeoJsonData = geoJsonWithData;
 			map.addSource('choropleth-data', {
 				type: 'geojson',
 				data: geoJsonWithData
@@ -1014,7 +1089,7 @@
 					const feature = e.features[0];
 					
 					// Update hover state
-					if (hoveredFeatureId !== null) {
+					if (hoveredFeatureId !== null && hoveredFeatureId !== undefined) {
 						map.setFeatureState(
 							{ source: 'choropleth-data', id: hoveredFeatureId },
 							{ hover: false }
@@ -1022,10 +1097,12 @@
 					}
 					
 					hoveredFeatureId = feature.id;
-					map.setFeatureState(
-						{ source: 'choropleth-data', id: hoveredFeatureId },
-						{ hover: true }
-					);
+					if (hoveredFeatureId !== null && hoveredFeatureId !== undefined) {
+						map.setFeatureState(
+							{ source: 'choropleth-data', id: hoveredFeatureId },
+							{ hover: true }
+						);
+					}
 					
 					// Show hover tooltip
 					const rect = mapContainer.getBoundingClientRect();
@@ -1163,24 +1240,34 @@
 				}
 			});
 
-			// Fit map to data bounds
-			if (geoJsonWithData.features.length > 0) {
-				const bounds = new mapboxgl.LngLatBounds();
-				geoJsonWithData.features.forEach((feature: any) => {
-					if (feature.geometry.type === 'Polygon') {
-						feature.geometry.coordinates[0].forEach((coord: number[]) => {
-							bounds.extend(coord);
-						});
-					} else if (feature.geometry.type === 'MultiPolygon') {
-						feature.geometry.coordinates.forEach((polygon: number[][][]) => {
-							polygon[0].forEach((coord: number[]) => {
+			// Re-apply search highlights if any
+			if (highlightedGeoId) {
+				applySearchHighlight();
+			}
+
+			// Fit map to bounds only when geometry changed (not on indicator switch)
+			if (fitToData && geoJsonWithData.features.length > 0) {
+				if ($currentGeoFilter && $currentGeoFilter.length > 0) {
+					// State filter active: fit to the state's actual bounds
+					const bounds = new mapboxgl.LngLatBounds();
+					geoJsonWithData.features.forEach((feature: any) => {
+						if (feature.geometry.type === 'Polygon') {
+							feature.geometry.coordinates[0].forEach((coord: number[]) => {
 								bounds.extend(coord);
 							});
-						});
-					}
-				});
-				
-				map.fitBounds(bounds, { padding: 50 });
+						} else if (feature.geometry.type === 'MultiPolygon') {
+							feature.geometry.coordinates.forEach((polygon: number[][][]) => {
+								polygon[0].forEach((coord: number[]) => {
+									bounds.extend(coord);
+								});
+							});
+						}
+					});
+					map.fitBounds(bounds, { padding: 50 });
+				} else {
+					// National view: reset to default US center/zoom
+					map.jumpTo({ center: [-98.5, 39.8], zoom: 3 });
+				}
 			}
 			
 		} catch (err) {
@@ -1207,15 +1294,15 @@
 </script>
 
 <!-- Map container -->
-<div class="relative w-full h-full bg-gray-100 rounded-lg overflow-hidden">
+<div class="relative w-full h-full bg-neutral-100 rounded-lg overflow-hidden">
 	<!-- Debug Panel -->
 	{#if showDebug && debugInfo}
-		<div class="absolute top-4 right-4 z-20 bg-white rounded-lg shadow-lg border border-gray-200 max-w-md">
+		<div class="absolute top-4 right-4 z-20 bg-white rounded-lg shadow-lg border border-neutral-200 max-w-md">
 			<div class="p-4">
 				<div class="flex items-center justify-between mb-3">
-					<h3 class="font-semibold text-gray-900">Debug Info</h3>
+					<h3 class="font-semibold text-neutral-900">Debug Info</h3>
 					<button 
-						class="text-gray-500 hover:text-gray-700"
+						class="text-neutral-500 hover:text-neutral-700"
 						on:click={() => showDebug = false}
 					>
 						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1227,8 +1314,8 @@
 				<div class="space-y-3 text-sm">
 					<!-- Request Info -->
 					<div>
-						<h4 class="font-medium text-gray-700 mb-1">Request</h4>
-						<div class="bg-gray-50 p-2 rounded text-xs font-mono">
+						<h4 class="font-medium text-neutral-700 mb-1">Request</h4>
+						<div class="bg-neutral-50 p-2 rounded text-xs font-mono">
 							<div>Indicator: {debugInfo.requestParams?.indicator}</div>
 							<div>Geo Level: {debugInfo.requestParams?.geo_level}</div>
 							<div>Year: {debugInfo.requestParams?.year}</div>
@@ -1238,8 +1325,8 @@
 					<!-- Response Info -->
 					{#if debugInfo.responseStatus}
 						<div>
-							<h4 class="font-medium text-gray-700 mb-1">Response</h4>
-							<div class="bg-gray-50 p-2 rounded text-xs">
+							<h4 class="font-medium text-neutral-700 mb-1">Response</h4>
+							<div class="bg-neutral-50 p-2 rounded text-xs">
 								<div>Status: <span class={debugInfo.responseStatus === 200 ? 'text-green-600' : 'text-red-600'}>{debugInfo.responseStatus}</span></div>
 								<div>Data Items: {debugInfo.dataCount}</div>
 								<div>GeoJSON Features: {debugInfo.geoJsonFeatures}</div>
@@ -1251,14 +1338,14 @@
 					<!-- Data Matching -->
 					{#if debugInfo.dataMatching}
 						<div>
-							<h4 class="font-medium text-gray-700 mb-1">Data Matching</h4>
-							<div class="bg-gray-50 p-2 rounded text-xs">
+							<h4 class="font-medium text-neutral-700 mb-1">Data Matching</h4>
+							<div class="bg-neutral-50 p-2 rounded text-xs">
 								<div>Matched: {debugInfo.dataMatching.matchedFeatures}/{debugInfo.dataMatching.totalFeatures} ({debugInfo.dataMatching.matchPercentage})</div>
 								{#if debugInfo.dataMatching.unmatchedFeatures > 0}
 									<div class="mt-1 text-red-600">Unmatched: {debugInfo.dataMatching.unmatchedFeatures}</div>
 									<details class="mt-1">
-										<summary class="cursor-pointer text-gray-600">Sample unmatched IDs</summary>
-										<div class="mt-1 text-xs text-gray-500">
+										<summary class="cursor-pointer text-neutral-600">Sample unmatched IDs</summary>
+										<div class="mt-1 text-xs text-neutral-500">
 											{debugInfo.dataMatching.sampleUnmatchedGeoIds.join(', ')}
 										</div>
 									</details>
@@ -1270,8 +1357,8 @@
 					<!-- Sample Data -->
 					{#if debugInfo.sampleData && debugInfo.sampleData.length > 0}
 						<div>
-							<h4 class="font-medium text-gray-700 mb-1">Sample Data</h4>
-							<div class="bg-gray-50 p-2 rounded text-xs max-h-32 overflow-y-auto">
+							<h4 class="font-medium text-neutral-700 mb-1">Sample Data</h4>
+							<div class="bg-neutral-50 p-2 rounded text-xs max-h-32 overflow-y-auto">
 								{#each debugInfo.sampleData as item}
 									<div class="mb-1">
 										<span class="font-medium">{item.geo_id}:</span> {item.value !== null ? item.value : 'null'} (bin: {item.bin})
@@ -1284,8 +1371,8 @@
 					<!-- Sample GeoJSON IDs -->
 					{#if debugInfo.sampleGeoJsonIds && debugInfo.sampleGeoJsonIds.length > 0}
 						<div>
-							<h4 class="font-medium text-gray-700 mb-1">Sample GeoJSON IDs</h4>
-							<div class="bg-gray-50 p-2 rounded text-xs">
+							<h4 class="font-medium text-neutral-700 mb-1">Sample GeoJSON IDs</h4>
+							<div class="bg-neutral-50 p-2 rounded text-xs">
 								{debugInfo.sampleGeoJsonIds.join(', ')}
 							</div>
 						</div>
@@ -1298,7 +1385,7 @@
 							<div class="bg-red-50 p-2 rounded text-xs text-red-600">
 								<div class="font-medium">{debugInfo.mapError.message}</div>
 								{#if debugInfo.mapError.dataInfo}
-									<div class="mt-1 text-gray-700">
+									<div class="mt-1 text-neutral-700">
 										<div>Has Data: {debugInfo.mapError.dataInfo.hasData}</div>
 										<div>Has GeoJson: {debugInfo.mapError.dataInfo.hasGeoJson}</div>
 										<div>Feature Count: {debugInfo.mapError.dataInfo.featureCount}</div>
@@ -1328,7 +1415,7 @@
 	<!-- Show Debug Button (when hidden) -->
 	{#if !showDebug && debugInfo}
 		<button 
-			class="absolute top-4 right-4 z-20 bg-white rounded-lg shadow-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+			class="absolute top-4 right-4 z-20 bg-white rounded-lg shadow-lg border border-neutral-200 px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
 			on:click={() => showDebug = true}
 		>
 			Show Debug
@@ -1347,7 +1434,7 @@
 		>
 			<div class="flex items-center space-x-3">
 				<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-				<span class="text-gray-700 font-medium">Loading map data...</span>
+				<span class="text-neutral-700 font-medium">Loading map data...</span>
 			</div>
 		</div>
 	{/if}
@@ -1387,16 +1474,71 @@
 		on:saveMap={handleSaveMap}
 	/>
 
+	<!-- Geography Search -->
+	{#if !isLoading && !error && mapData}
+		<div class="absolute top-2 left-2 md:top-4 md:left-4 z-20 w-64">
+			<div class="relative">
+				<div class="flex items-center bg-white rounded-lg shadow-lg border border-neutral-200 overflow-hidden">
+					<svg class="w-4 h-4 text-neutral-400 ml-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+					</svg>
+					<input
+						type="text"
+						bind:value={geoSearchQuery}
+						bind:this={geoSearchInputEl}
+						on:focus={() => geoSearchOpen = true}
+						on:blur={() => setTimeout(() => geoSearchOpen = false, 200)}
+						placeholder="Search geographies..."
+						class="w-full px-2 py-2 text-sm text-neutral-700 bg-transparent outline-none placeholder-neutral-400"
+					/>
+					{#if geoSearchQuery || highlightedGeoId}
+						<button
+							class="mr-2 text-neutral-400 hover:text-neutral-600"
+							on:mousedown|preventDefault={() => { geoSearchQuery = ''; geoSearchResults = []; clearSearchHighlight(); }}
+						>
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+							</svg>
+						</button>
+					{/if}
+				</div>
+
+				<!-- Search results dropdown -->
+				{#if geoSearchOpen && geoSearchResults.length > 0}
+					<div class="absolute top-full mt-1 w-full bg-white rounded-lg shadow-lg border border-neutral-200 max-h-60 overflow-y-auto">
+						{#each geoSearchResults as result}
+							<button
+								class="w-full text-left px-3 py-2 hover:bg-amber-50 transition-colors border-b border-neutral-100 last:border-b-0"
+								on:mousedown|preventDefault={() => selectSearchResult(result)}
+							>
+								<div class="text-sm font-medium text-neutral-700">{result.geo_name}</div>
+								{#if result.state}
+									<div class="text-xs text-neutral-400">{result.state}</div>
+								{/if}
+							</button>
+						{/each}
+					</div>
+				{/if}
+				{#if geoSearchOpen && geoSearchQuery.length >= 2 && geoSearchResults.length === 0}
+					<div class="absolute top-full mt-1 w-full bg-white rounded-lg shadow-lg border border-neutral-200 px-3 py-2 text-sm text-neutral-500">
+						No results found
+					</div>
+				{/if}
+			</div>
+
+		</div>
+	{/if}
+
 	<!-- Legend -->
 	{#if legendData.length > 0 && !isLoading && !error}
 		<div class="absolute bottom-2 left-2 md:bottom-4 md:left-4 z-10 max-w-[140px] md:max-w-none">
-			<Legend legend={legendData} />
+			<Legend legend={legendData} indicatorName={$selectedIndicatorsWithMetadata.find(ind => ind.id === mapDisplayIndicator)?.name || ''} on:filterChange={handleValueFilter} />
 		</div>
 	{/if}
 	
 	<!-- Filter validation message - only show if we don't have basic geographic context OR no variables selected -->
 	{#if !$currentGeoLevel || !$currentPrimaryYear}
-		<div class="absolute inset-0 bg-gray-50 bg-opacity-95 flex items-center justify-center z-10">
+		<div class="absolute inset-0 bg-neutral-50 bg-opacity-95 flex items-center justify-center z-10">
 			<EmptyState 
 				variant="selection"
 				title="Configure Your Analysis"
@@ -1409,7 +1551,7 @@
 			/>
 		</div>
 	{:else if !$currentPrimaryIndicator && (!$currentSelectedIndicators || $currentSelectedIndicators.length === 0)}
-		<div class="absolute inset-0 bg-gray-50 bg-opacity-95 flex items-center justify-center z-10">
+		<div class="absolute inset-0 bg-neutral-50 bg-opacity-95 flex items-center justify-center z-10">
 			<EmptyState 
 				variant="selection"
 				title="Configure Your Analysis"

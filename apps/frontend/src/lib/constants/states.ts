@@ -13,7 +13,6 @@ export const US_STATES: StateInfo[] = [
 	{ code: '08', name: 'Colorado' },
 	{ code: '09', name: 'Connecticut' },
 	{ code: '10', name: 'Delaware' },
-	{ code: '11', name: 'District of Columbia' },
 	{ code: '12', name: 'Florida' },
 	{ code: '13', name: 'Georgia' },
 	{ code: '15', name: 'Hawaii' },
@@ -56,7 +55,6 @@ export const US_STATES: StateInfo[] = [
 	{ code: '54', name: 'West Virginia' },
 	{ code: '55', name: 'Wisconsin' },
 	{ code: '56', name: 'Wyoming' },
-	{ code: '72', name: 'Puerto Rico' }
 ];
 
 /**

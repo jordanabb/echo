@@ -108,25 +108,25 @@
 		out:fade={{ duration: 150 }}
 	>
 		<div 
-			class="bg-white rounded-lg shadow-lg border border-gray-200 max-w-sm"
+			class="bg-white rounded-lg shadow-lg border border-neutral-200 max-w-sm"
 			class:shadow-xl={!isHover}
-			class:border-gray-300={!isHover}
+			class:border-neutral-300={!isHover}
 		>
 			<!-- Header -->
-			<div class="px-4 py-3 border-b border-gray-100">
+			<div class="px-4 py-3 border-b border-neutral-100">
 				<div class="flex items-start justify-between">
 					<div class="flex-1">
-						<h3 class="font-semibold text-gray-900 text-sm leading-tight">
+						<h3 class="font-semibold text-neutral-900 text-sm leading-tight">
 							{formatGeographicName(feature)}
 						</h3>
-						<p class="text-xs text-gray-500 mt-1">
+						<p class="text-xs text-neutral-500 mt-1">
 							{getGeoTypeDisplayName($currentGeoLevel)} • ID: {feature.properties.geo_id}
 						</p>
 					</div>
 					
 					{#if !isHover}
 						<button 
-							class="ml-2 text-gray-400 hover:text-gray-600 transition-colors pointer-events-auto"
+							class="ml-2 text-neutral-400 hover:text-neutral-600 transition-colors pointer-events-auto"
 							on:click={closeTooltip}
 							aria-label="Close tooltip"
 						>
@@ -144,22 +144,22 @@
 					<!-- Primary indicator value -->
 					<div class="mb-3">
 						<div class="flex items-center justify-between mb-1">
-							<span class="text-sm font-medium text-gray-700">
+							<span class="text-sm font-medium text-neutral-700">
 								{currentIndicator.name}
 							</span>
 							{#if currentYear}
-								<span class="text-xs text-gray-500">
+								<span class="text-xs text-neutral-500">
 									{currentYear}
 								</span>
 							{/if}
 						</div>
 						
-						<div class="text-lg font-semibold text-gray-900">
+						<div class="text-lg font-semibold text-neutral-900">
 							{formatValue(feature.properties.value, currentIndicator)}
 						</div>
 						
 						{#if feature.properties.bin !== undefined && feature.properties.bin >= 0}
-							<div class="text-xs text-gray-500 mt-1">
+							<div class="text-xs text-neutral-500 mt-1">
 								Quintile {feature.properties.bin + 1} of 5
 							</div>
 						{/if}
@@ -167,15 +167,15 @@
 
 					<!-- Indicator description (for click tooltips) -->
 					{#if !isHover && currentIndicator.description}
-						<div class="mb-3 pb-3 border-b border-gray-100">
-							<p class="text-xs text-gray-600 leading-relaxed">
+						<div class="mb-3 pb-3 border-b border-neutral-100">
+							<p class="text-xs text-neutral-600 leading-relaxed">
 								{currentIndicator.description}
 							</p>
 						</div>
 					{/if}
 				{:else}
 					<!-- No indicator selected -->
-					<div class="text-sm text-gray-500">
+					<div class="text-sm text-neutral-500">
 						No indicator data available
 					</div>
 				{/if}
@@ -185,15 +185,15 @@
 					<div class="space-y-2">
 						{#if currentIndicator?.theme}
 							<div class="flex items-center justify-between text-xs">
-								<span class="text-gray-500">Theme:</span>
-								<span class="text-gray-700 font-medium">{currentIndicator.theme}</span>
+								<span class="text-neutral-500">Theme:</span>
+								<span class="text-neutral-700 font-medium">{currentIndicator.theme}</span>
 							</div>
 						{/if}
 						
 						{#if feature.properties.value !== null && feature.properties.value !== undefined}
 							<div class="flex items-center justify-between text-xs">
-								<span class="text-gray-500">Raw Value:</span>
-								<span class="text-gray-700 font-mono">{feature.properties.value}</span>
+								<span class="text-neutral-500">Raw Value:</span>
+								<span class="text-neutral-700 font-mono">{feature.properties.value}</span>
 							</div>
 						{/if}
 					</div>
@@ -202,8 +202,8 @@
 
 			<!-- Footer for click tooltips -->
 			{#if !isHover}
-				<div class="px-4 py-2 bg-gray-50 rounded-b-lg border-t border-gray-100">
-					<p class="text-xs text-gray-500 text-center">
+				<div class="px-4 py-2 bg-neutral-50 rounded-b-lg border-t border-neutral-100">
+					<p class="text-xs text-neutral-500 text-center">
 						Click elsewhere to close
 					</p>
 				</div>
@@ -211,9 +211,9 @@
 		</div>
 
 		<!-- Tooltip arrow -->
-		<div class="absolute top-full left-1/2 transform -translate-x-1/2">
+		<div class="absolute top-full left-1/2 transform -tranneutral-x-1/2">
 			<div class="w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-white"></div>
-			<div class="w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-200 absolute top-0 left-1/2 transform -translate-x-1/2 translate-y-px"></div>
+			<div class="w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-neutral-200 absolute top-0 left-1/2 transform -tranneutral-x-1/2 tranneutral-y-px"></div>
 		</div>
 	</div>
 {/if}

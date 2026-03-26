@@ -125,13 +125,27 @@ export default {
 					800: '#991b1b',
 					900: '#7f1d1d',
 					950: '#450a0a'
+				},
+				// Override default slate with true neutral grayscale (no blue undertone)
+				slate: {
+					50: '#fafafa',
+					100: '#f5f5f5',
+					200: '#e5e5e5',
+					300: '#d4d4d4',
+					400: '#a3a3a3',
+					500: '#737373',
+					600: '#525252',
+					700: '#404040',
+					800: '#262626',
+					900: '#171717',
+					950: '#0a0a0a'
 				}
 			},
 			fontFamily: {
-				sans: ['Inter Variable', 'Inter', ...fontFamily.sans],
-				serif: ['Playfair Display Variable', 'Playfair Display', ...fontFamily.serif],
-				mono: ['JetBrains Mono Variable', 'JetBrains Mono', ...fontFamily.mono],
-				display: ['Poppins', ...fontFamily.sans]
+				sans: ['ABC Whyte', ...fontFamily.sans],
+				serif: ['ABC Whyte', ...fontFamily.serif],
+				mono: ['ABC Whyte', ...fontFamily.mono],
+				display: ['ABC Whyte', ...fontFamily.sans]
 			},
 			fontSize: {
 				'xs': ['0.75rem', { lineHeight: '1rem' }],

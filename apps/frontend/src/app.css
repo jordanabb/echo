@@ -1,1 +1,169 @@
 @import 'tailwindcss';
+
+@theme {
+	--font-sans: 'ABC Whyte', ui-sans-serif, system-ui, sans-serif;
+	--font-serif: 'ABC Whyte', ui-serif, Georgia, serif;
+	--font-mono: 'ABC Whyte', ui-monospace, monospace;
+	--font-display: 'ABC Whyte', ui-sans-serif, system-ui, sans-serif;
+}
+
+/* ABC Whyte Font Family */
+@font-face {
+	font-family: 'ABC Whyte';
+	src: url('/fonts/ABCWhyte-Thin.woff2') format('woff2');
+	font-weight: 100;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'ABC Whyte';
+	src: url('/fonts/ABCWhyte-ThinItalic.woff2') format('woff2');
+	font-weight: 100;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'ABC Whyte';
+	src: url('/fonts/ABCWhyte-Extralight.woff2') format('woff2');
+	font-weight: 200;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'ABC Whyte';
+	src: url('/fonts/ABCWhyte-ExtralightItalic.woff2') format('woff2');
+	font-weight: 200;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'ABC Whyte';
+	src: url('/fonts/ABCWhyte-Light.woff2') format('woff2');
+	font-weight: 300;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'ABC Whyte';
+	src: url('/fonts/ABCWhyte-LightItalic.woff2') format('woff2');
+	font-weight: 300;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'ABC Whyte';
+	src: url('/fonts/ABCWhyte-Book.woff2') format('woff2');
+	font-weight: 350;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'ABC Whyte';
+	src: url('/fonts/ABCWhyte-BookItalic.woff2') format('woff2');
+	font-weight: 350;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'ABC Whyte';
+	src: url('/fonts/ABCWhyte-Regular.woff2') format('woff2');
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'ABC Whyte';
+	src: url('/fonts/ABCWhyte-RegularItalic.woff2') format('woff2');
+	font-weight: 400;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'ABC Whyte';
+	src: url('/fonts/ABCWhyte-Medium.woff2') format('woff2');
+	font-weight: 500;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'ABC Whyte';
+	src: url('/fonts/ABCWhyte-MediumItalic.woff2') format('woff2');
+	font-weight: 500;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'ABC Whyte';
+	src: url('/fonts/ABCWhyte-Bold.woff2') format('woff2');
+	font-weight: 700;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'ABC Whyte';
+	src: url('/fonts/ABCWhyte-BoldItalic.woff2') format('woff2');
+	font-weight: 700;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'ABC Whyte';
+	src: url('/fonts/ABCWhyte-Heavy.woff2') format('woff2');
+	font-weight: 800;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'ABC Whyte';
+	src: url('/fonts/ABCWhyte-HeavyItalic.woff2') format('woff2');
+	font-weight: 800;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'ABC Whyte';
+	src: url('/fonts/ABCWhyte-Black.woff2') format('woff2');
+	font-weight: 900;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'ABC Whyte';
+	src: url('/fonts/ABCWhyte-BlackItalic.woff2') format('woff2');
+	font-weight: 900;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'ABC Whyte';
+	src: url('/fonts/ABCWhyte-Super.woff2') format('woff2');
+	font-weight: 950;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'ABC Whyte';
+	src: url('/fonts/ABCWhyte-SuperItalic.woff2') format('woff2');
+	font-weight: 950;
+	font-style: italic;
+	font-display: swap;
+}

@@ -12,6 +12,7 @@
 		isAnalysisReady,
 		setYears
 	} from '$lib/stores/unifiedFilters';
+	import { apiUrl } from '$lib/api';
 	import { crossfade, slide } from 'svelte/transition';
 	import { quintOut } from 'svelte/easing';
 	import { formatValueByType } from '$lib/utils';
@@ -99,6 +100,8 @@
 	let yAxisVariable: string = '';
 	let thirdVariable: string = '';
 	let thirdVariableMode: 'color' | 'size' | 'state' = 'color'; // Toggle between color, size, and state
+	let sizeScaleMin: number | null = null;
+	let sizeScaleMax: number | null = null;
 	let selectedYear: number | null = null;
 	let selectedGeographies: string[] = [];
 	
@@ -116,6 +119,10 @@
 
 	// Bar chart options
 	let hideBarLabels: boolean = false;
+
+	// State average reference
+	let showStateAverage: boolean = false;
+	let stateAverageData: any[] = [];
 	
 	// Geographic unit selection for line charts
 	let availableGeoUnits: {geo_id: string, geo_name: string}[] = [];
@@ -245,7 +252,7 @@
 			}
 			
 			// Use the geometries endpoint which properly filters by geo_level
-			const response = await fetch(`/api/geometries?${params}`);
+			const response = await fetch(apiUrl(`/api/geometries?${params}`));
 			
 			if (!response.ok) {
 				throw new Error(`Failed to fetch geo_ids: ${response.statusText}`);
@@ -269,59 +276,66 @@
 			case 'revenue':
 				return ['federal_revenue_pp', 'state_revenue_pp', 'local_revenue_pp'];
 			case 'student_demographics':
-				return ['asian_students', 'black_students', 'latino_students', 'native_students', 'pacific_islander_students', 'two_or_more_races_students'];
+				return ['asian_students', 'black_students', 'latino_students', 'native_students', 'pacific_islander_students', 'two_or_more_races_students', 'white_students'];
 			case 'community_demographics':
-				return ['asian_population', 'black_population', 'native_population', 'pacific_islander_population', 'two_or_more_races_population', 'other_race_population'];
+				return ['asian_population', 'black_population', 'native_population', 'pacific_islander_population', 'two_or_more_races_population', 'other_race_population', 'white_population'];
 			default:
 				return [];
 		}
 	}
 
+	// Request counter to discard stale geo unit responses
+	let geoUnitsRequestId = 0;
+
 	// Function to fetch available geographic units for the current geo level
 	async function fetchAvailableGeoUnits() {
 		const geoLevel = $currentGeoLevel || (selectedChartType === 'pie' ? 'county' : null);
 		if (!geoLevel) return;
-		
+
+		const thisRequestId = ++geoUnitsRequestId;
+
 		try {
 			// Use the latest year from available years or current years
-			const yearToUse = availableYears.length > 0 
-				? availableYears[availableYears.length - 1] 
+			const yearToUse = availableYears.length > 0
+				? availableYears[availableYears.length - 1]
 				: ($currentYears.length > 0 ? $currentYears[$currentYears.length - 1] : 2022);
-			
+
 			const params = new URLSearchParams({
 				geo_level: geoLevel,
 				year: yearToUse.toString()
 			});
-			
+
 			// Apply state filter if one is selected
 			if ($currentGeoFilter && $currentGeoFilter.length > 0) {
 				params.set('state_filter', $currentGeoFilter.join(','));
 			}
-			
-			console.log('Fetching available geo units with URL:', `/api/geometries?${params}`);
-			const response = await fetch(`/api/geometries?${params}`);
-			
+
+			const response = await fetch(apiUrl(`/api/geometries?${params}`));
+
+			// Discard if a newer request has been made
+			if (thisRequestId !== geoUnitsRequestId) return;
+
 			if (!response.ok) {
 				throw new Error(`Failed to fetch geographic units: ${response.statusText}`);
 			}
-			
+
 			const data = await response.json();
-			
+
+			if (thisRequestId !== geoUnitsRequestId) return;
+
 			// Extract geo units from the response
 			if (data.geoJson?.features) {
 				const units = data.geoJson.features.map((feature: any) => ({
 					geo_id: feature.properties?.geo_id || '',
 					geo_name: feature.properties?.geo_name || 'Unknown'
 				}));
-				
-				// Sort by name
-				availableGeoUnits = units.sort((a: any, b: any) => 
+
+				availableGeoUnits = units.sort((a: any, b: any) =>
 					a.geo_name.localeCompare(b.geo_name)
 				);
-				
-				console.log(`Fetched ${availableGeoUnits.length} geographic units for ${$currentGeoLevel}`);
 			}
 		} catch (err) {
+			if (thisRequestId !== geoUnitsRequestId) return;
 			console.error('Error fetching available geographic units:', err);
 			availableGeoUnits = [];
 		}
@@ -410,7 +424,7 @@
 			
 			console.log('Fetching chart data with payload:', requestPayload);
 			
-			const response = await fetch('/api/table-data', {
+			const response = await fetch(apiUrl('/api/table-data'), {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json'
@@ -468,7 +482,76 @@
 			isLoading = false;
 		}
 	}
-	
+
+	async function fetchStateAverages() {
+		if (!showStateAverage || !$currentGeoLevel || $currentGeoLevel === 'state' || selectedChartType === 'pie') {
+			stateAverageData = [];
+			return;
+		}
+		try {
+			const yearsToFetch = selectedChartType === 'line'
+				? $currentYears
+				: (selectedYear ? [selectedYear] : $currentYears);
+			if (yearsToFetch.length === 0) {
+				stateAverageData = [];
+				return;
+			}
+
+			const allGeoIds = new Set<string>();
+			for (const year of yearsToFetch) {
+				const yearGeoIds = await fetchGeoIds($currentGeoLevel, year);
+				yearGeoIds.forEach(id => allGeoIds.add(id));
+			}
+			if (allGeoIds.size === 0) {
+				stateAverageData = [];
+				return;
+			}
+
+			const indicatorSet = new Set<string>();
+			if (selectedChartType === 'scatter') {
+				if (xAxisVariable) indicatorSet.add(xAxisVariable);
+				if (yAxisVariable) indicatorSet.add(yAxisVariable);
+				if (thirdVariable) indicatorSet.add(thirdVariable);
+			} else if (yAxisVariable) {
+				indicatorSet.add(yAxisVariable);
+			}
+			$currentSelectedIndicators.forEach(id => indicatorSet.add(id));
+			const indicatorIds = Array.from(indicatorSet);
+			if (indicatorIds.length === 0) {
+				stateAverageData = [];
+				return;
+			}
+
+			const response = await fetch(apiUrl('/api/state-averages'), {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					geo_ids: Array.from(allGeoIds),
+					indicator_ids: indicatorIds,
+					years: yearsToFetch,
+					geo_level: $currentGeoLevel
+				})
+			});
+			if (!response.ok) throw new Error('Failed to fetch state averages');
+			const result = await response.json();
+			stateAverageData = result.data || [];
+		} catch (err) {
+			console.error('Error fetching state averages:', err);
+			stateAverageData = [];
+		}
+	}
+
+	$: if (browser && showStateAverage && selectedChartType && selectedChartType !== 'pie') {
+		fetchStateAverages().then(() => {
+			if (chartData.length > 0) renderChart();
+		});
+	}
+
+	$: if (!showStateAverage) {
+		stateAverageData = [];
+		if (chartInstance && chartData.length > 0) renderChart();
+	}
+
 	// Function to transform real API data for chart visualization
 	function transformDataForChart(rawData: any[], chartType: ChartType): any[] {
 		if (!rawData || rawData.length === 0) {
@@ -591,7 +674,7 @@
 					for (const [geoId, geoInfo] of geoYearMap) {
 						const sortedData = Array.from(geoInfo.data.values()).sort((a, b) => a.x - b.x);
 						const color = colors[colorIndex % colors.length];
-						
+
 						datasets.push({
 							label: geoInfo.geo_name,
 							data: sortedData,
@@ -601,10 +684,10 @@
 							pointRadius: 4,
 							pointHoverRadius: 6
 						});
-						
+
 						colorIndex++;
 					}
-					
+
 					return datasets;
 				}
 				break;
@@ -874,12 +957,38 @@
 	
 	// Function to get Chart.js configuration based on chart type
 	function getChartConfig(chartType: ChartType, data: any[]) {
+		// Extend bar data with state average rows up front so tooltip closures see them
+		if (chartType === 'bar' && showStateAverage && stateAverageData.length > 0) {
+			const yearAvgs = selectedYear
+				? stateAverageData.filter(r => r.year === selectedYear)
+				: stateAverageData;
+			const avgRows = yearAvgs
+				.map(r => {
+					const value = parseFloat(r[yAxisVariable]);
+					if (isNaN(value)) return null;
+					const stateName = getStateNameByCode(r.state_fips) || r.state_fips;
+					return {
+						label: `${stateName} Avg`,
+						value,
+						geo_id: `__state_avg_${r.state_fips}_${r.year}`,
+						geo_name: `${stateName} Avg`,
+						isStateAverage: true
+					};
+				})
+				.filter(r => r !== null);
+			if (avgRows.length > 0) data = [...data, ...avgRows];
+		}
+
 		const baseConfig = {
 			responsive: true,
 			maintainAspectRatio: false,
 			plugins: {
 				legend: {
+					display: !(selectedChartType === 'scatter' && thirdVariableMode === 'size'),
 					position: 'top' as const,
+					labels: {
+						filter: (item: any) => item.text !== 'Data Points'
+					}
 				},
 				title: {
 					display: true,
@@ -1003,7 +1112,7 @@
 		};
 		
 		switch (chartType) {
-			case 'bar':
+			case 'bar': {
 				return {
 					type: 'bar' as const,
 					data: {
@@ -1011,9 +1120,18 @@
 						datasets: [{
 							label: getIndicatorDisplayName(yAxisVariable),
 							data: data.map(d => d.value),
-							backgroundColor: data.map(d => highlightedGeoId && d.geo_id === highlightedGeoId ? 'rgba(245, 158, 11, 0.8)' : 'rgba(2, 114, 114, 0.6)'),
-							borderColor: data.map(d => highlightedGeoId && d.geo_id === highlightedGeoId ? 'rgba(245, 158, 11, 1)' : 'rgba(2, 114, 114, 1)'),
-							borderWidth: data.map(d => highlightedGeoId && d.geo_id === highlightedGeoId ? 2 : 1)
+							backgroundColor: data.map(d =>
+								d.isStateAverage ? 'rgba(220, 38, 38, 0.75)' :
+								(highlightedGeoId && d.geo_id === highlightedGeoId ? 'rgba(245, 158, 11, 0.8)' : 'rgba(2, 114, 114, 0.6)')
+							),
+							borderColor: data.map(d =>
+								d.isStateAverage ? 'rgba(220, 38, 38, 1)' :
+								(highlightedGeoId && d.geo_id === highlightedGeoId ? 'rgba(245, 158, 11, 1)' : 'rgba(2, 114, 114, 1)')
+							),
+							borderWidth: data.map(d =>
+								d.isStateAverage ? 2.5 :
+								(highlightedGeoId && d.geo_id === highlightedGeoId ? 2 : 1)
+							)
 						}]
 					},
 					options: {
@@ -1038,12 +1156,48 @@
 						}
 					}
 				};
+			}
 
-			case 'line':
+			case 'line': {
+				let lineDatasets = data;
+				if (showStateAverage && stateAverageData.length > 0) {
+					const stateAvgMap = new Map<string, {x: number, y: number}[]>();
+					stateAverageData.forEach(r => {
+						const value = parseFloat(r[yAxisVariable]);
+						if (isNaN(value) || !r.year) return;
+						if (!stateAvgMap.has(r.state_fips)) stateAvgMap.set(r.state_fips, []);
+						stateAvgMap.get(r.state_fips)!.push({ x: r.year, y: value });
+					});
+					const avgColors = [
+						'#DC2626', '#7C2D12', '#9D174D', '#581C87', '#1E3A8A',
+						'#92400E', '#365314', '#831843', '#3F1D38'
+					];
+					let avgColorIndex = 0;
+					const avgDatasets: any[] = [];
+					for (const [stateFips, points] of stateAvgMap) {
+						const stateName = getStateNameByCode(stateFips) || stateFips;
+						const sorted = points.sort((a, b) => a.x - b.x);
+						const color = avgColors[avgColorIndex % avgColors.length];
+						avgDatasets.push({
+							label: `${stateName} Avg`,
+							data: sorted,
+							borderColor: color,
+							backgroundColor: color + '20',
+							borderDash: [6, 4],
+							borderWidth: 2.5,
+							tension: 0.1,
+							pointRadius: 5,
+							pointHoverRadius: 7,
+							pointStyle: 'rectRot'
+						});
+						avgColorIndex++;
+					}
+					lineDatasets = [...data, ...avgDatasets];
+				}
 				return {
 					type: 'line' as const,
 					data: {
-						datasets: data // data is already an array of datasets for line charts
+						datasets: lineDatasets
 					},
 					options: {
 						...baseConfig,
@@ -1072,7 +1226,8 @@
 						}
 					}
 				};
-			
+			}
+
 			case 'scatter':
 				// Ensure data points have numeric x and y values
 				const validScatterData = data.filter(d => 
@@ -1227,6 +1382,8 @@
 						if (sizeValues.length > 0) {
 							const minSize = Math.min(...sizeValues);
 							const maxSize = Math.max(...sizeValues);
+							sizeScaleMin = minSize;
+							sizeScaleMax = maxSize;
 							const sizeRange = maxSize - minSize;
 							
 							// Calculate point sizes (3-15 pixel radius range)
@@ -1282,6 +1439,44 @@
 					}];
 				}
 				
+				// Add state average reference points
+				if (showStateAverage && stateAverageData.length > 0 && xAxisVariable && yAxisVariable) {
+					const yearAvgs = selectedYear
+						? stateAverageData.filter(r => r.year === selectedYear)
+						: stateAverageData;
+					const avgPoints = yearAvgs
+						.map(r => {
+							const x = parseFloat(r[xAxisVariable]);
+							const y = parseFloat(r[yAxisVariable]);
+							if (isNaN(x) || isNaN(y)) return null;
+							const stateName = getStateNameByCode(r.state_fips) || r.state_fips;
+							return {
+								x,
+								y,
+								geo_id: `__state_avg_${r.state_fips}_${r.year}`,
+								geo_name: `${stateName} Avg`,
+								label: `${stateName} Avg`,
+								state_name: stateName,
+								isStateAverage: true
+							};
+						})
+						.filter(p => p !== null);
+
+					if (avgPoints.length > 0) {
+						datasets.push({
+							label: 'State Average',
+							data: avgPoints,
+							backgroundColor: 'rgba(220, 38, 38, 0.9)',
+							borderColor: 'rgba(127, 29, 29, 1)',
+							borderWidth: 2,
+							pointRadius: 10,
+							pointHoverRadius: 13,
+							pointStyle: 'star',
+							order: 0
+						} as any);
+					}
+				}
+
 				// Add trend line if enabled
 				if (showTrendLine && validScatterData.length >= 2) {
 					const regression = calculateLinearRegression(validScatterData);
@@ -1598,6 +1793,7 @@
 	$: if (browser && selectedChartType && $currentGeoFilter !== undefined) {
 		// Re-fetch available geographic units when state filter changes
 		if ((selectedChartType === 'line' || selectedChartType === 'bar' || selectedChartType === 'pie') && ($currentGeoLevel || selectedChartType === 'pie')) {
+			selectedGeoUnits = [];
 			fetchAvailableGeoUnits();
 		}
 		if (isChartConfigValid()) {
@@ -2018,6 +2214,37 @@
 													Remove geographic unit names from the x-axis
 												</p>
 											</div>
+											{#if $currentGeoLevel && $currentGeoLevel !== 'state'}
+												<div>
+													<label class="flex items-center">
+														<input
+															type="checkbox"
+															bind:checked={showStateAverage}
+															class="h-4 w-4 text-teal-600 focus:ring-teal-500 border-neutral-300 rounded"
+														/>
+														<span class="ml-2 text-sm font-medium text-neutral-700">Show state average</span>
+													</label>
+													<p class="text-xs text-neutral-500 mt-1">
+														Adds a reference bar for each state's average
+													</p>
+												</div>
+											{/if}
+										{/if}
+
+										{#if selectedChartType === 'line' && $currentGeoLevel && $currentGeoLevel !== 'state'}
+											<div>
+												<label class="flex items-center">
+													<input
+														type="checkbox"
+														bind:checked={showStateAverage}
+														class="h-4 w-4 text-teal-600 focus:ring-teal-500 border-neutral-300 rounded"
+													/>
+													<span class="ml-2 text-sm font-medium text-neutral-700">Show state average</span>
+												</label>
+												<p class="text-xs text-neutral-500 mt-1">
+													Adds a dashed line for each state's average over time
+												</p>
+											</div>
 										{/if}
 
 										<!-- X-Axis Variable (only shown for scatter charts) -->
@@ -2160,6 +2387,22 @@
 													Displays a linear regression line showing the relationship between variables
 												</p>
 											</div>
+
+											{#if $currentGeoLevel && $currentGeoLevel !== 'state'}
+												<div>
+													<label class="flex items-center">
+														<input
+															type="checkbox"
+															bind:checked={showStateAverage}
+															class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-neutral-300 rounded"
+														/>
+														<span class="ml-2 text-sm font-medium text-neutral-700">Show state average</span>
+													</label>
+													<p class="text-xs text-neutral-500 mt-1">
+														Adds a star marker for each state's average values
+													</p>
+												</div>
+											{/if}
 										{/if}
 										
 										<!-- Year Selection -->
@@ -2357,10 +2600,7 @@
 																		handleSearch();
 																	}}
 																>
-																	<div class="flex justify-between items-center">
-																		<span class="text-neutral-900">{unit.geo_name}</span>
-																		<span class="text-xs text-neutral-500">{unit.geo_id}</span>
-																	</div>
+																	<span class="text-neutral-900">{unit.geo_name}</span>
 																</button>
 															{/each}
 														</div>
@@ -2374,6 +2614,23 @@
 											</div>
 										{/if}
 										
+										<!-- Size scale legend (replaces Chart.js legend when size mode active) -->
+										{#if selectedChartType === 'scatter' && thirdVariableMode === 'size' && thirdVariable && sizeScaleMin !== null && sizeScaleMax !== null}
+											<div class="flex items-center gap-4 justify-center pb-2">
+												<span class="text-xs text-neutral-500 font-medium">Size: {getIndicatorDisplayName(thirdVariable)}</span>
+												<div class="flex items-end gap-3">
+													{#each [0, 0.5, 1] as t}
+														{@const val = sizeScaleMin + t * (sizeScaleMax - sizeScaleMin)}
+														{@const r = 3 + t * 12}
+														<div class="flex flex-col items-center gap-1">
+															<div style="width:{r*2}px;height:{r*2}px;border-radius:50%;background:rgba(2,114,114,0.6);border:1px solid rgba(2,114,114,1);flex-shrink:0"></div>
+															<span class="text-xs text-neutral-400">{formatValueByType(val, thirdVariable)}</span>
+														</div>
+													{/each}
+												</div>
+											</div>
+										{/if}
+
 										<!-- Chart Canvas -->
 										<div class="relative w-full transition-all duration-500 ease-in-out {isExpanded ? 'h-[75vh]' : 'h-64 sm:h-80 md:h-96'}">
 											<!-- Loading overlay for chart area only -->

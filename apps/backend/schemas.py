@@ -46,6 +46,11 @@ class NoDataResponse(BaseModel):
 #      Defines the shape for requesting and receiving tabular data.
 # ===================================================================
 
+class ValueFilter(BaseModel):
+    column: str
+    min: Optional[float] = None
+    max: Optional[float] = None
+
 class TableDataRequest(BaseModel):
     geo_ids: List[str]
     indicator_ids: List[str]
@@ -54,6 +59,15 @@ class TableDataRequest(BaseModel):
     page: Optional[int] = None       # 1-based page number; omit for all rows (CSV export)
     page_size: Optional[int] = 100   # Rows per page
     search: Optional[str] = None     # Search filter on geo_name
+    sort_column: Optional[str] = None      # Column to sort by
+    sort_direction: Optional[str] = "asc"  # "asc" or "desc"
+    value_filters: Optional[List[ValueFilter]] = None  # Min/max filters on indicator columns
+
+class StateAveragesRequest(BaseModel):
+    geo_ids: List[str]
+    indicator_ids: List[str]
+    years: List[int]
+    geo_level: Optional[str] = None
 
 # The response for table data is a list of dictionaries, which can be
 # represented in Python as List[Dict[str, Any]]. We don't need a rigid

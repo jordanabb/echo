@@ -1,7 +1,6 @@
 # Location: apps/backend/main.py
 
 # --- Standard Library Imports ---
-import json
 import os
 from typing import List
 
@@ -137,28 +136,16 @@ def get_metadata(db: Session = Depends(get_db)):
     its dynamic filter controls and UI elements. This is the "source of truth"
     for what data is available in the application.
     """
-    # Query the database to find which indicators actually exist
-    existing_indicators_query = db.query(
-        models.ResultsData.indicator_id
-    ).distinct().all()
-    
-    existing_indicator_names = {row.indicator_id for row in existing_indicators_query}
-
-    # Create a mapping from indicator names (as stored in DB) to config keys
-    name_to_key_mapping = {meta["name"]: key for key, meta in INDICATOR_METADATA.items()}
-
-    # Build indicator list using hardcoded metadata and available years
+    # Build indicator list directly from hardcoded config
     indicator_list = []
     for id, meta in INDICATOR_METADATA.items():
-        # Check if this indicator exists in the database
-        if meta["name"] in existing_indicator_names:
-            indicator_list.append(schemas.IndicatorMetadata(
-                id=id,
-                name=meta["name"],
-                theme=meta["theme"],
-                description=meta["description"],
-                available_years=meta["available_years"]  # Use hardcoded years from config
-            ))
+        indicator_list.append(schemas.IndicatorMetadata(
+            id=id,
+            name=meta["name"],
+            theme=meta["theme"],
+            description=meta["description"],
+            available_years=meta["available_years"]
+        ))
 
     return {
         "indicators": indicator_list,
@@ -564,11 +551,11 @@ def get_table_data(request: schemas.TableDataRequest, db: Session = Depends(get_
         if ind_id in INDICATOR_METADATA:
             # It's a config key, use the corresponding name for DB query
             indicator_name = INDICATOR_METADATA[ind_id]["name"]
-            pivot_columns.append(f"MAX(CASE WHEN indicator_id = '{indicator_name}' THEN value END) AS \"{ind_id}\"")
+            pivot_columns.append(f"MAX(CASE WHEN indicator_id = '{indicator_name}' THEN value END)::double precision AS \"{ind_id}\"")
             valid_indicator_names.append(indicator_name)
         elif ind_id in name_to_key_mapping:
             # It's a full name, use it directly for DB query
-            pivot_columns.append(f"MAX(CASE WHEN indicator_id = '{ind_id}' THEN value END) AS \"{name_to_key_mapping[ind_id]}\"")
+            pivot_columns.append(f"MAX(CASE WHEN indicator_id = '{ind_id}' THEN value END)::double precision AS \"{name_to_key_mapping[ind_id]}\"")
             valid_indicator_names.append(ind_id)
         else:
             # Invalid indicator - not found in config
@@ -604,25 +591,64 @@ def get_table_data(request: schemas.TableDataRequest, db: Session = Depends(get_
         offset = (page - 1) * page_size
         pagination_clause = f"LIMIT {page_size} OFFSET {offset}"
 
+    # Build ORDER BY clause — allow sorting by any valid column
+    # Whitelist allowed sort columns to prevent SQL injection
+    allowed_sort_columns = {"geo_name", "state_fips", "year"}
+    for ind_id in request.indicator_ids:
+        if ind_id in INDICATOR_METADATA or ind_id in {meta["name"] for meta in INDICATOR_METADATA.values()}:
+            allowed_sort_columns.add(ind_id)
+
+    order_clause = "ORDER BY geo_name, year"  # default
+    if request.sort_column and request.sort_column in allowed_sort_columns:
+        direction = "DESC" if request.sort_direction and request.sort_direction.lower() == "desc" else "ASC"
+        col = request.sort_column
+        order_clause = f'ORDER BY "{col}" {direction} NULLS LAST'
+
+    # Build HAVING clause for value range filters
+    having_clauses = []
+    if request.value_filters:
+        for vf in request.value_filters:
+            # Only allow filtering on whitelisted indicator columns
+            if vf.column in allowed_sort_columns and vf.column not in ("geo_name", "state_fips", "year"):
+                # Resolve indicator name for the CASE expression
+                if vf.column in INDICATOR_METADATA:
+                    ind_name = INDICATOR_METADATA[vf.column]["name"]
+                elif vf.column in name_to_key_mapping:
+                    ind_name = vf.column
+                else:
+                    continue
+                col_expr = f"MAX(CASE WHEN indicator_id = '{ind_name}' THEN value END)::double precision"
+                if vf.min is not None:
+                    having_clauses.append(f"{col_expr} >= {float(vf.min)}")
+                if vf.max is not None:
+                    having_clauses.append(f"{col_expr} <= {float(vf.max)}")
+
+    having_clause = ""
+    if having_clauses:
+        having_clause = "HAVING " + " AND ".join(having_clauses)
+
     # Single query with COUNT(*) OVER() window function to get total in one round-trip
     sql_query = text(f"""
-        SELECT *, COUNT(*) OVER() AS _total FROM (
-            SELECT
-                r.geo_id,
-                g.geo_name,
-                g.state_fips,
-                r.year,
-                {pivot_sql}
-            FROM results_data r
-            JOIN geographies g ON r.geo_id = g.geo_id AND g.year = r.year
-            WHERE r.geo_id IN :geo_ids
-              AND r.indicator_id IN :indicator_ids
-              AND r.year IN :years
-              {geo_level_clause}
-              {search_clause}
-            GROUP BY r.geo_id, g.geo_name, g.state_fips, r.year
-            ORDER BY g.geo_name, r.year
-        ) sub
+        SELECT * FROM (
+            SELECT *, COUNT(*) OVER() AS _total FROM (
+                SELECT
+                    r.geo_id,
+                    g.geo_name,
+                    g.state_fips,
+                    r.year,
+                    {pivot_sql}
+                FROM results_data r
+                JOIN geographies g ON r.geo_id = g.geo_id AND g.year = r.year
+                WHERE r.geo_id IN :geo_ids
+                  AND r.indicator_id IN :indicator_ids
+                  AND r.year IN :years
+                  {geo_level_clause}
+                  {search_clause}
+                GROUP BY r.geo_id, g.geo_name, g.state_fips, r.year
+                {having_clause}
+            ) sub
+        ) counted
+        {order_clause}
         {pagination_clause};
     """)
 
@@ -640,7 +666,113 @@ def get_table_data(request: schemas.TableDataRequest, db: Session = Depends(get_
     total = int(df["_total"].iloc[0])
     df = df.drop(columns=["_total"])
 
-    # Convert pandas NaN (Not a Number) to None for proper JSON nulls
-    df = df.where(pd.notna(df), None)
+    # Convert to native Python types to ensure JSON serialization produces
+    # numbers (not strings). Indicator columns may come back as strings from
+    # pd.read_sql_query with raw text() SQL, so we explicitly parse them.
+    string_cols = {'geo_id', 'geo_name', 'state_fips'}
+    records = df.to_dict(orient='records')
+    for row in records:
+        for key in list(row.keys()):
+            if key in string_cols:
+                continue
+            val = row[key]
+            if val is None:
+                continue
+            # Handle NaN from numpy/pandas
+            try:
+                if pd.isna(val):
+                    row[key] = None
+                    continue
+            except (TypeError, ValueError):
+                pass
+            # Convert to native Python number
+            try:
+                num = float(val)
+                row[key] = int(num) if key == 'year' else num
+            except (ValueError, TypeError):
+                pass  # leave as-is if not convertible
 
-    return {"data": df.to_dict(orient='records'), "total": total}
+    return {"data": records, "total": total}
+
+
+@app.post("/api/state-averages")
+def get_state_averages(request: schemas.StateAveragesRequest, db: Session = Depends(get_db)):
+    """
+    Returns average indicator values grouped by (state_fips, year) for the
+    requested geo_ids. Used to show state-level reference rows in the data table.
+    """
+    if not request.geo_ids or not request.indicator_ids or not request.years:
+        raise HTTPException(status_code=400, detail="geo_ids, indicator_ids, and years are all required.")
+
+    name_to_key_mapping = {meta["name"]: key for key, meta in INDICATOR_METADATA.items()}
+
+    pivot_columns = []
+    valid_indicator_names = []
+
+    for ind_id in request.indicator_ids:
+        if ind_id in INDICATOR_METADATA:
+            indicator_name = INDICATOR_METADATA[ind_id]["name"]
+            pivot_columns.append(f"AVG(CASE WHEN indicator_id = '{indicator_name}' THEN value END)::double precision AS \"{ind_id}\"")
+            valid_indicator_names.append(indicator_name)
+        elif ind_id in name_to_key_mapping:
+            pivot_columns.append(f"AVG(CASE WHEN indicator_id = '{ind_id}' THEN value END)::double precision AS \"{name_to_key_mapping[ind_id]}\"")
+            valid_indicator_names.append(ind_id)
+
+    if not pivot_columns:
+        raise HTTPException(status_code=400, detail="Invalid indicator_ids provided.")
+
+    pivot_sql = ", ".join(pivot_columns)
+
+    geo_level_clause = ""
+    query_params = {
+        "geo_ids": tuple(request.geo_ids),
+        "indicator_ids": tuple(valid_indicator_names),
+        "years": tuple(request.years),
+    }
+
+    if request.geo_level:
+        geo_level_clause = "AND g.geo_level = :geo_level"
+        query_params["geo_level"] = request.geo_level
+
+    sql_query = text(f"""
+        SELECT
+            g.state_fips,
+            r.year,
+            {pivot_sql}
+        FROM results_data r
+        JOIN geographies g ON r.geo_id = g.geo_id AND g.year = r.year
+        WHERE r.geo_id IN :geo_ids
+          AND r.indicator_id IN :indicator_ids
+          AND r.year IN :years
+          {geo_level_clause}
+        GROUP BY g.state_fips, r.year
+        ORDER BY g.state_fips, r.year;
+    """)
+
+    df = pd.read_sql_query(sql_query, db.bind, params=query_params)
+
+    if df.empty:
+        return {"data": []}
+
+    string_cols = {'state_fips'}
+    records = df.to_dict(orient='records')
+    for row in records:
+        for key in list(row.keys()):
+            if key in string_cols:
+                continue
+            val = row[key]
+            if val is None:
+                continue
+            try:
+                if pd.isna(val):
+                    row[key] = None
+                    continue
+            except (TypeError, ValueError):
+                pass
+            try:
+                num = float(val)
+                row[key] = int(num) if key == 'year' else num
+            except (ValueError, TypeError):
+                pass
+
+    return {"data": records}

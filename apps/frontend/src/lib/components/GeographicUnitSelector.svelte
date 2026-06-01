@@ -1,12 +1,18 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import Button from './Button.svelte';
-	
+	import { getStateAbbrByCode } from '$lib/constants/states';
+
 	// Props
 	export let availableUnits: {geo_id: string, geo_name: string}[] = [];
 	export let selectedUnits: string[] = [];
 	export let disabled: boolean = false;
 	export let placeholder: string = "Search geographic units...";
+
+	function stateAbbrFromGeoId(geoId: string): string {
+		if (!geoId || geoId.length < 2) return '';
+		return getStateAbbrByCode(geoId.substring(0, 2)) || '';
+	}
 	
 	// Event dispatcher
 	const dispatch = createEventDispatcher<{
@@ -19,10 +25,14 @@
 	let dropdownContainer: HTMLDivElement;
 	
 	// Filtered units based on search term
-	$: filteredUnits = availableUnits.filter(unit => 
-		unit.geo_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-		unit.geo_id.toLowerCase().includes(searchTerm.toLowerCase())
-	);
+	$: filteredUnits = availableUnits.filter(unit => {
+		const term = searchTerm.toLowerCase();
+		return (
+			unit.geo_name.toLowerCase().includes(term) ||
+			unit.geo_id.toLowerCase().includes(term) ||
+			stateAbbrFromGeoId(unit.geo_id).toLowerCase().includes(term)
+		);
+	});
 	
 	// Selected unit names for display
 	$: selectedUnitNames = availableUnits
@@ -162,8 +172,8 @@
 						<span class="ml-3 block truncate text-neutral-900">
 							{unit.geo_name}
 						</span>
-						<span class="ml-auto text-xs text-neutral-500">
-							{unit.geo_id}
+						<span class="ml-auto text-xs font-medium text-neutral-500">
+							{stateAbbrFromGeoId(unit.geo_id)}
 						</span>
 					</label>
 				{/each}

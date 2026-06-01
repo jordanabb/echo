@@ -484,7 +484,7 @@
 		// Handle special cases first
 		const specialCases: Record<string, string> = {
 			'geo_id': 'Geography ID',
-			'geo_name': 'Geography Name',
+			'geo_name': 'Name',
 			'state_fips': 'State',
 			'year': 'Year'
 		};

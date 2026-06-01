@@ -1790,14 +1790,20 @@
 		}
 	}
 	
-	$: if (browser && selectedChartType && $currentGeoFilter !== undefined) {
-		// Re-fetch available geographic units when state filter changes
-		if ((selectedChartType === 'line' || selectedChartType === 'bar' || selectedChartType === 'pie') && ($currentGeoLevel || selectedChartType === 'pie')) {
-			selectedGeoUnits = [];
-			fetchAvailableGeoUnits();
-		}
-		if (isChartConfigValid()) {
-			debounceApiCall(fetchChartData, DEBOUNCE_DELAY);
+	// Track last seen geoFilter so we only reset selections when contents actually change
+	let lastGeoFilterKey: string | null = null;
+	$: {
+		const geoFilterKey = ($currentGeoFilter || []).join(',');
+		if (browser && selectedChartType && geoFilterKey !== lastGeoFilterKey) {
+			const isFirstRun = lastGeoFilterKey === null;
+			lastGeoFilterKey = geoFilterKey;
+			if (!isFirstRun && (selectedChartType === 'line' || selectedChartType === 'bar' || selectedChartType === 'pie') && ($currentGeoLevel || selectedChartType === 'pie')) {
+				selectedGeoUnits = [];
+				fetchAvailableGeoUnits();
+			}
+			if (isChartConfigValid()) {
+				debounceApiCall(fetchChartData, DEBOUNCE_DELAY);
+			}
 		}
 	}
 	

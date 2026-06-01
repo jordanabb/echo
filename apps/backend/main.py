@@ -712,10 +712,10 @@ def get_state_averages(request: schemas.StateAveragesRequest, db: Session = Depe
     for ind_id in request.indicator_ids:
         if ind_id in INDICATOR_METADATA:
             indicator_name = INDICATOR_METADATA[ind_id]["name"]
-            pivot_columns.append(f"AVG(CASE WHEN indicator_id = '{indicator_name}' THEN value END)::double precision AS \"{ind_id}\"")
+            pivot_columns.append(f"AVG(CASE WHEN indicator_id = '{indicator_name}' THEN value::double precision END) AS \"{ind_id}\"")
             valid_indicator_names.append(indicator_name)
         elif ind_id in name_to_key_mapping:
-            pivot_columns.append(f"AVG(CASE WHEN indicator_id = '{ind_id}' THEN value END)::double precision AS \"{name_to_key_mapping[ind_id]}\"")
+            pivot_columns.append(f"AVG(CASE WHEN indicator_id = '{ind_id}' THEN value::double precision END) AS \"{name_to_key_mapping[ind_id]}\"")
             valid_indicator_names.append(ind_id)
 
     if not pivot_columns:

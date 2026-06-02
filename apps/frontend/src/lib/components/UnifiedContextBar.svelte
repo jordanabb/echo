@@ -128,6 +128,7 @@
 
 	function clearStateFilter() {
 		updateFilter('geoFilter', []);
+		showStateDropdown = false;
 	}
 
 	function getStateFilterLabel(): string {

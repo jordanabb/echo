@@ -75,6 +75,11 @@
 	let showPageStateDropdown = false;
 	let pageStateDropdownRef: HTMLDivElement;
 
+	function clearPageStateFilter() {
+		updateFilter('geoFilter', []);
+		showPageStateDropdown = false;
+	}
+
 	function handlePageClickOutside(event: MouseEvent) {
 		if (showPageStateDropdown && pageStateDropdownRef && !pageStateDropdownRef.contains(event.target as Node)) {
 			showPageStateDropdown = false;
@@ -126,7 +131,7 @@
 				Education, Community, and Housing Open Data Dashboard
 			</p>
 			<p class="text-sm sm:text-base md:text-lg lg:text-xl text-neutral-500 italic mb-4 md:mb-6">
-				Updated and Re-Released March 2026
+				Updated and Re-Released April 2026
 			</p>
 
 			<!-- Attribution -->
@@ -258,7 +263,7 @@
 										</button>
 										{#if showPageStateDropdown}
 											<div class="absolute z-50 mt-1 w-full bg-white border border-neutral-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
-													<button type="button" class="w-full text-left px-4 py-2 text-sm font-semibold border-b border-neutral-100 {$currentGeoFilter.length === 0 ? 'bg-teal-50 text-teal-700' : 'text-neutral-700 hover:bg-teal-50'}" on:click={() => updateFilter('geoFilter', [])}>All States</button>
+													<button type="button" class="w-full text-left px-4 py-2 text-sm font-semibold border-b border-neutral-100 {$currentGeoFilter.length === 0 ? 'bg-teal-50 text-teal-700' : 'text-neutral-700 hover:bg-teal-50'}" on:click={clearPageStateFilter}>All States</button>
 												{#each US_STATES as state}
 													<label class="flex items-center px-4 py-2 hover:bg-neutral-50 cursor-pointer text-sm">
 														<input type="checkbox" checked={$currentGeoFilter.includes(state.code)} on:change={() => toggleStateFilter(state.code)} class="h-4 w-4 text-teal-600 border-neutral-300 rounded mr-3" />
@@ -596,7 +601,7 @@
 				</p>
 			</div>
 			<div class="flex justify-center space-x-6">
-				<Button variant="ghost" size="sm">
+				<Button variant="ghost" size="sm" on:click={() => window.open('/echo-data-methods.pdf', '_blank')}>
 					Documentation
 				</Button>
 				<Button variant="ghost" size="sm">

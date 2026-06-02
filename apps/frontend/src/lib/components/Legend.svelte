@@ -232,6 +232,9 @@
 					{/each}
 				</div>
 
+				<!-- Quintile note -->
+				<p class="text-[10px] text-neutral-400 mt-2">Each color represents one quintile of values</p>
+
 				<!-- Value filter slider -->
 				{#if sliderMin !== sliderMax}
 					<div class="mt-3 pt-3 border-t border-neutral-200">

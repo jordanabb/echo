@@ -17,6 +17,7 @@
 		filtersInitialized
 	} from '$lib/stores/unifiedFilters';
 	import { geographies } from '$lib/stores/metadata';
+	import { apiUrl } from '$lib/api';
 	import { showVariableSelector } from '$lib/stores/interactiveSteps';
 	import { US_STATES, getStateNameByCode } from '$lib/constants/states';
 	import { crossfade } from 'svelte/transition';
@@ -589,7 +590,7 @@
 			params.set('state_filter', $currentGeoFilter.join(','));
 		}
 
-		const response = await fetch(`/api/geometries?${params}`, { signal });
+		const response = await fetch(apiUrl(`/api/geometries?${params}`), { signal });
 
 		if (!response.ok) {
 			if (response.status === 404) {
@@ -625,7 +626,7 @@
 			params.set('state_filter', $currentGeoFilter.join(','));
 		}
 
-		const response = await fetch(`/api/indicator-data?${params}`, { signal });
+		const response = await fetch(apiUrl(`/api/indicator-data?${params}`), { signal });
 
 		if (!response.ok) {
 			if (response.status === 404) {

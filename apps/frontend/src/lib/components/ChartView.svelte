@@ -18,7 +18,7 @@
 	import { formatValueByType } from '$lib/utils';
 	import { geographies } from '$lib/stores/metadata';
 	import { showVariableSelector } from '$lib/stores/interactiveSteps';
-	import { getStateNameByCode } from '$lib/constants/states';
+	import { getStateNameByCode, getStateAbbrByCode } from '$lib/constants/states';
 	import Card from './Card.svelte';
 	import Button from './Button.svelte';
 	import GeographicUnitSelector from './GeographicUnitSelector.svelte';
@@ -674,9 +674,13 @@
 					for (const [geoId, geoInfo] of geoYearMap) {
 						const sortedData = Array.from(geoInfo.data.values()).sort((a, b) => a.x - b.x);
 						const color = colors[colorIndex % colors.length];
+						const abbr = typeof geoId === 'string' && geoId.length >= 2
+							? getStateAbbrByCode(geoId.substring(0, 2))
+							: null;
+						const label = abbr ? `${geoInfo.geo_name}, ${abbr}` : geoInfo.geo_name;
 
 						datasets.push({
-							label: geoInfo.geo_name,
+							label,
 							data: sortedData,
 							borderColor: color,
 							backgroundColor: color.replace('1)', '0.1)'),
@@ -1016,24 +1020,31 @@
 								
 								// For different chart types, extract geography name differently
 								switch (chartType) {
-									case 'bar':
+									case 'bar': {
 										// Use the geography name from the transformed data
 										const dataIndex = dataPoint.dataIndex;
 										const barDataItem = data[dataIndex];
-										return barDataItem?.geo_name || barDataItem?.label || 'Unknown Geography';
-									case 'scatter':
+										const name = barDataItem?.geo_name || barDataItem?.label || 'Unknown Geography';
+										if (barDataItem?.isStateAverage) return name;
+										const abbr = barDataItem?.geo_id ? getStateAbbrByCode(String(barDataItem.geo_id).substring(0, 2)) : null;
+										return abbr ? `${name}, ${abbr}` : name;
+									}
+									case 'scatter': {
 										// For scatter plots, get the geo_name directly from the raw data point
 										const rawDataPoint = dataPoint.raw;
 										const geoName = rawDataPoint?.geo_name || rawDataPoint?.label || `Data Point ${dataPoint.dataIndex + 1}`;
-										
+
+										if (rawDataPoint?.isStateAverage) return geoName;
+
 										// Add state abbreviation to the title if available
 										if (rawDataPoint?.state_name && rawDataPoint.state_name !== 'Unknown State') {
 											// Convert state name to abbreviation
 											const stateAbbrev = getStateAbbreviation(rawDataPoint.state_name);
 											return stateAbbrev ? `${geoName}, ${stateAbbrev}` : geoName;
 										}
-										
+
 										return geoName;
+									}
 									case 'line':
 										// For line charts, show the geographic unit name and year
 										const datasetLabel = dataPoint.dataset.label;

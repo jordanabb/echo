@@ -1,4 +1,5 @@
 import { writable, derived, type Writable, type Readable } from 'svelte/store';
+import { apiUrl } from '$lib/api';
 
 // Types for the metadata structure
 export interface IndicatorMetadata {
@@ -36,7 +37,7 @@ async function fetchMetadata(): Promise<void> {
 	metadataError.set(null);
 	
 	try {
-		const response = await fetch('/api/metadata');
+		const response = await fetch(apiUrl('/api/metadata'));
 		
 		if (!response.ok) {
 			throw new Error(`Failed to fetch metadata: ${response.status} ${response.statusText}`);

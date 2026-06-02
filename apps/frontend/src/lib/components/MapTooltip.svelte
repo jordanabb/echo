@@ -120,7 +120,7 @@
 							{formatGeographicName(feature)}
 						</h3>
 						<p class="text-xs text-neutral-500 mt-1">
-							{getGeoTypeDisplayName($currentGeoLevel)} • ID: {feature.properties.geo_id}
+							{getGeoTypeDisplayName($currentGeoLevel)}
 						</p>
 					</div>
 					

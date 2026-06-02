@@ -100,7 +100,9 @@ export function formatValueByType(value: any, columnName: string, indicatorName?
 	}
 	
 	if (typeof value !== 'number') {
-		return String(value);
+		const parsed = Number(value);
+		if (isNaN(parsed)) return String(value);
+		value = parsed;
 	}
 	
 	// Determine format type based on column name or indicator name
@@ -112,8 +114,8 @@ export function formatValueByType(value: any, columnName: string, indicatorName?
 	}
 	
 	// Check for dollar/currency indicators
-	if (name.includes('$') || name.includes('revenue') || name.includes('income') || 
-		name.includes('value') || name.includes('allocation')) {
+	if (name.includes('$') || name.includes('revenue') || name.includes('income') ||
+		name.includes('value') || name.includes('allocation') || name.includes('rent')) {
 		return formatCurrency(value);
 	}
 	
@@ -130,9 +132,9 @@ export function formatValueByType(value: any, columnName: string, indicatorName?
  * Formats a number as a percentage with % symbol
  */
 export function formatPercentage(value: number): string {
-	return `${value.toLocaleString('en-US', { 
-		minimumFractionDigits: 1, 
-		maximumFractionDigits: 1 
+	return `${value.toLocaleString('en-US', {
+		minimumFractionDigits: 2,
+		maximumFractionDigits: 2
 	})}%`;
 }
 

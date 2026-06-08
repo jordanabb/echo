@@ -556,10 +556,13 @@
 				minWidth = 'min-w-[50px] w-[50px] md:min-w-[80px] md:w-[80px]';
 			}
 
-			return `${baseClasses} ${minWidth} sticky ${leftOffset} bg-neutral-50 border-r border-neutral-200 z-20`;
+			// Sticky in both directions: pinned to top AND left.
+			// z-40 keeps these above regular sticky headers (z-30) and sticky body cells (z-10).
+			return `${baseClasses} ${minWidth} sticky top-0 ${leftOffset} bg-neutral-50 border-r border-neutral-200 z-40`;
 		}
 
-		return `${baseClasses} bg-neutral-50`;
+		// Regular header: pinned to top only. z-30 keeps it above body cells.
+		return `${baseClasses} bg-neutral-50 sticky top-0 z-30`;
 	}
 </script>
 
@@ -591,8 +594,8 @@
 		<div class="relative">
 			<!-- Loading overlay -->
 			{#if isLoading}
-				<div 
-					class="absolute inset-0 bg-white bg-opacity-90 backdrop-blur-sm flex items-center justify-center z-30"
+				<div
+					class="absolute inset-0 bg-white bg-opacity-90 backdrop-blur-sm flex items-center justify-center z-50"
 					in:receive={{ key: 'loading' }}
 					out:send={{ key: 'loading' }}
 				>

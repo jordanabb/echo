@@ -37,10 +37,15 @@ def build_parser():
 
     add('preflight', "check this machine is set up (changes nothing)")
 
-    add('login', "start a 12-hour AWS session using your MFA code",
+    login_cmd = add(
+        'login', "start a 12-hour AWS session using your MFA code",
         "Exchanges an MFA code for temporary credentials, stored in the\n"
         "'echo-mfa' AWS profile. Every other command uses it automatically.\n"
-        "Required because this account denies most API calls without MFA.")
+        "Required because this account denies most API calls without MFA.\n\n"
+        "Your MFA device is found automatically. Pass --serial only if that\n"
+        "lookup is denied, or set MFA_SERIAL in your environment.")
+    login_cmd.add_argument('--serial', metavar='ARN',
+                           help="MFA device ARN, e.g. arn:aws:iam::<account>:mfa/<name>")
 
     pull = add('pull-data', "download ETL inputs and dumps from S3",
                "Fetches the shared source data. Run this first on a new machine —\n"
@@ -99,7 +104,7 @@ def dispatch(args):
     if args.command == 'preflight':
         return preflight.run_preflight()
     if args.command == 'login':
-        aws.login()
+        aws.login(serial=args.serial)
         return 0
     if args.command == 'pull-data':
         return data.sync_data('pull', args.what, args.dry_run)

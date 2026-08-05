@@ -6,10 +6,11 @@ which is awkward everywhere and impossible from Python; a profile persists,
 survives closing the terminal, and behaves identically on Windows, macOS and
 Linux.
 """
+import os
 import shutil
 import subprocess
 
-from .console import die, say, step, ok, detail
+from .console import Abort, choose, die, say, step, ok, detail
 
 # Where `login` stores the temporary session credentials.
 PROFILE = 'echo-mfa'
@@ -86,7 +87,61 @@ def require_session():
             "This prompts for your MFA code and sets up a 12-hour session.")
 
 
-def login():
+def _mfa_help(account_hint=''):
+    return ("Find it in the AWS console under\n"
+            "  IAM > Users > (your user) > Security credentials > Multi-factor authentication\n"
+            "It looks like arn:aws:iam::{}:mfa/<device-name>\n\n"
+            "Then pass it explicitly:\n"
+            "  python scripts/echo.py login --serial <arn>\n\n"
+            "Or set it once so you never type it again:\n"
+            "  MFA_SERIAL=<arn>   (an environment variable)"
+            .format(account_hint or '<account-id>'))
+
+
+def _find_mfa_serial(explicit=None):
+    """Work out which MFA device to use.
+
+    Order: an explicitly passed ARN, then the MFA_SERIAL environment variable,
+    then whatever is registered against the calling user. Discovery is the happy
+    path, but it can fail — the policy on this account denies most calls without
+    an MFA token, and whether it carves out iam:ListMFADevices depends on how it
+    was written. When discovery fails there must still be a way in, or the user
+    is locked out of the one command that would unlock their account.
+    """
+    if explicit:
+        return explicit
+    if os.environ.get('MFA_SERIAL'):
+        return os.environ['MFA_SERIAL']
+
+    say("Looking up your MFA device...")
+    try:
+        listed = run(['iam', 'list-mfa-devices',
+                      '--query', 'MFADevices[].SerialNumber', '--output', 'text'],
+                     profile=None)
+    except Abort:
+        die("Could not look up your MFA device — the account denied the request.",
+            "This is expected if the IAM policy does not allow iam:ListMFADevices\n"
+            "before you have an MFA session.\n\n" + _mfa_help())
+
+    devices = [d for d in listed.split() if d and d != 'None']
+
+    if not devices:
+        die("No MFA device is registered against your IAM user.",
+            "Register one first, in the AWS console:\n"
+            "  IAM > Users > (your user) > Security credentials > Assign MFA device\n"
+            "  Choose 'Authenticator app', scan the QR code, then enter two\n"
+            "  consecutive codes.\n\n"
+            "Then run this command again.")
+
+    if len(devices) == 1:
+        return devices[0]
+
+    # More than one device (a phone authenticator and a hardware key, say). Only
+    # the one whose code is being typed will work, so it has to be chosen.
+    return choose("You have several MFA devices — which are you using?", devices)
+
+
+def login(serial=None):
     """Exchange an MFA code for a 12-hour session stored in the PROFILE."""
     step("Signing in to AWS")
 
@@ -100,15 +155,7 @@ def login():
             "Use the access key ID and secret for your own IAM user.")
     ok("Base credentials belong to {}".format(identity))
 
-    serial = run(['iam', 'list-mfa-devices',
-                  '--query', 'MFADevices[0].SerialNumber', '--output', 'text'],
-                 profile=None)
-
-    if not serial or serial == 'None':
-        die("Your IAM user has no MFA device registered.",
-            "Register one in the AWS console:\n"
-            "  IAM > Users > (your user) > Security credentials > Assign MFA device\n\n"
-            "Then run this command again.")
+    serial = _find_mfa_serial(serial)
     ok("MFA device {}".format(serial))
 
     code = input("Enter the current 6-digit MFA code: ").strip()

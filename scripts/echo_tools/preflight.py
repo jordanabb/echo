@@ -24,7 +24,10 @@ TOOLS = [
     ('psql', "psql / pg_dump", "Windows: winget install PostgreSQL.PostgreSQL.16\n"
                                "                then add C:\\Program Files\\PostgreSQL\\16\\bin to PATH\n"
                                "       macOS:   brew install postgresql@16", True),
-    ('pnpm', "pnpm", "npm install -g pnpm  (only needed to deploy the frontend)", False),
+    # pnpm needs Node first; npm ships with it and will not exist on its own.
+    ('pnpm', "pnpm", "Only needed to deploy the frontend, not to add data:\n"
+                     "         winget install OpenJS.NodeJS\n"
+                     "         npm install -g pnpm", False),
 ]
 
 ETL_PACKAGES = ['pandas', 'sqlalchemy', 'dotenv', 'psycopg2', 'shapely']

@@ -1,10 +1,35 @@
+# Python packages for the FastAPI backend. This file is what the Dockerfile
+# installs, so it defines the production runtime.
+#
+#   cd apps/backend
+#   python -m venv .venv
+#   source .venv/bin/activate        # Windows: .venv\Scripts\activate
+#   pip install -r requirements.txt
+
+# Web framework and server
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
+
+# Request/response models. Imported directly by schemas.py, so declared here
+# rather than relied on as a FastAPI transitive dependency. Left as a range
+# rather than an exact pin: FastAPI resolves it too, and pinning it to one
+# version here would change what the next image build installs. schemas.py uses
+# only BaseModel with plain annotations, so any 2.x works.
+pydantic>=2.0,<3.0
+
+# Database access
 sqlalchemy==2.0.23
 psycopg2-binary==2.9.9
-python-dotenv==1.0.0
+geoalchemy2==0.14.1
+
+# Data handling and classification for choropleth breaks
 pandas==2.1.3
 geopandas==0.14.1
 mapclassify==2.6.1
+
+# Used by the Dockerfile HEALTHCHECK, not by application code.
 requests==2.31.0
-geoalchemy2==0.14.1
+
+# Reads apps/backend/.env in local development. In production the equivalent
+# values are set as App Runner environment variables.
+python-dotenv==1.0.0

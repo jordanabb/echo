@@ -6,6 +6,7 @@ setting up a new machine usually means fixing several things at once.
 import platform
 import shutil
 import subprocess
+import sys
 
 from . import aws
 from .config import DEPLOY_ENV, REPO_ROOT, describe_target, resolve_db_target
@@ -37,7 +38,25 @@ def run_preflight():
         # 'python' resolves differently across platforms; we are already running,
         # so report the interpreter actually in use.
         if command == 'python':
-            ok("{} {}".format(label, platform.python_version()))
+            # The ETL requirements are pinned to versions released before
+            # Python 3.13, and pandas/psycopg2-binary ship no 3.13 wheels — pip
+            # falls back to building from source and fails on a machine with no
+            # compiler. Catch it here; the pip error itself is a wall of C output
+            # that says nothing about the Python version being the cause.
+            version = sys.version_info
+            if version < (3, 9):
+                fail("{} {} is too old".format(label, platform.python_version()),
+                     "Install Python 3.12: https://www.python.org/downloads/release/python-3128/")
+            elif version >= (3, 13):
+                fail("{} {} is too new for the pinned dependencies"
+                     .format(label, platform.python_version()),
+                     "pandas 2.1.3 and psycopg2-binary 2.9.9 have no wheels for 3.13+,\n"
+                     "       so pip tries to compile them and fails.\n"
+                     "       Install Python 3.12 alongside what you have:\n"
+                     "         winget install Python.Python.3.12\n"
+                     "       then use 'py -3.12' instead of 'python'.")
+            else:
+                ok("{} {}".format(label, platform.python_version()))
             continue
         if shutil.which(command):
             ok(label)

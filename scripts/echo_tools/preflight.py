@@ -12,13 +12,19 @@ from . import aws
 from .config import DEPLOY_ENV, REPO_ROOT, describe_target, resolve_db_target
 from .console import Abort, bad, detail, ok, say, step, warn
 
+# (command, label, install hint, required-for-a-dataset-update)
+# pnpm only builds the frontend, which a dataset update never touches. Reporting
+# it as a failure sends someone off installing Node for no reason.
 TOOLS = [
-    ('python', "Python", "https://www.python.org/downloads/"),
-    ('aws', "AWS CLI", "https://aws.amazon.com/cli/  (on Windows use the MSI installer)"),
-    ('docker', "Docker", "https://docs.docker.com/get-docker/"),
-    ('psql', "psql / pg_dump", "Windows: https://www.postgresql.org/download/windows/\n"
-                               "       macOS:   brew install libpq && brew link --force libpq"),
-    ('pnpm', "pnpm", "npm install -g pnpm"),
+    ('python', "Python", "https://www.python.org/downloads/", True),
+    ('aws', "AWS CLI", "winget install Amazon.AWSCLI\n"
+                       "       or https://aws.amazon.com/cli/", True),
+    ('docker', "Docker", "winget install Docker.DockerDesktop\n"
+                         "       or https://docs.docker.com/get-docker/", True),
+    ('psql', "psql / pg_dump", "Windows: winget install PostgreSQL.PostgreSQL.16\n"
+                               "                then add C:\\Program Files\\PostgreSQL\\16\\bin to PATH\n"
+                               "       macOS:   brew install postgresql@16", True),
+    ('pnpm', "pnpm", "npm install -g pnpm  (only needed to deploy the frontend)", False),
 ]
 
 ETL_PACKAGES = ['pandas', 'sqlalchemy', 'dotenv', 'psycopg2', 'shapely']
@@ -34,7 +40,7 @@ def run_preflight():
         failures.append(message)
 
     step("Tools")
-    for command, label, hint in TOOLS:
+    for command, label, hint, required in TOOLS:
         # 'python' resolves differently across platforms; we are already running,
         # so report the interpreter actually in use.
         if command == 'python':
@@ -60,8 +66,11 @@ def run_preflight():
             continue
         if shutil.which(command):
             ok(label)
-        else:
+        elif required:
             fail("{} — not found".format(label), hint)
+        else:
+            warn("{} — not found (optional)".format(label))
+            detail(hint)
 
     step("Docker")
     if shutil.which('docker'):
@@ -79,6 +88,10 @@ def run_preflight():
                 detail("Needed to test a dataset change before touching production.")
         else:
             fail("Docker is installed but not running", "Start Docker Desktop, then re-run this.")
+    else:
+        # Say so explicitly. A section header with nothing under it reads like
+        # the check crashed rather than like it was skipped.
+        detail("skipped — Docker is not installed (see Tools above)")
 
     machine = platform.machine().lower()
     if machine in ('arm64', 'aarch64'):
@@ -127,6 +140,8 @@ def run_preflight():
             ok("Signed in as {}".format(identity))
         else:
             fail("No active AWS session", "python scripts/echo.py login")
+    else:
+        detail("skipped — the AWS CLI is not installed (see Tools above)")
 
     say()
     if failures:

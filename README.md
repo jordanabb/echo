@@ -35,8 +35,13 @@ its own to make data appear in the dashboard.
 
 **Running it locally** — [QUICK_START.md](QUICK_START.md).
 
-**Setting up a new machine** — [docs/environment.md](docs/environment.md) lists every
-tool and package version, with install commands per platform. The short version:
+**Setting up a new machine, start to finish** —
+[docs/first-time-setup.md](docs/first-time-setup.md). Follow this if you are new to
+the project: it goes from an empty machine to a working local copy of production,
+including AWS sign-in and the Windows-specific traps.
+
+**Reference on tools and versions** — [docs/environment.md](docs/environment.md) lists
+every tool and package version, with install commands per platform. The short version:
 
 ```bash
 cp .env.example .env

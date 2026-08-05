@@ -141,8 +141,8 @@ def deploy_frontend():
     ok("Built into apps/frontend/build/")
 
     step("2/3 Uploading to S3")
-    aws.run(['s3', 'sync', str(build_dir), "s3://{}".format(bucket), '--delete'],
-            region=region, capture=False)
+    aws.run(['s3', 'sync', str(build_dir), "s3://{}".format(bucket), '--delete',
+             '--only-show-errors'], region=region, capture=False)
     ok("Uploaded")
 
     step("3/3 Invalidating CloudFront")

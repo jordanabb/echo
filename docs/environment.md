@@ -135,6 +135,27 @@ Production values are **not** in any of these — they are set as environment
 variables on the App Runner service. See
 [aws-infrastructure.md](aws-infrastructure.md).
 
+## Large S3 transfers
+
+The shared data is about 9 GB, and some individual files are large —
+`results.csv` is 2.4 GB, the database dump around 900 MB. Two things matter:
+
+**A transfer that is interrupted partway leaves nothing behind.** `aws s3` does
+not resume a single file, so a multi-GB file has to complete within one pass.
+`pull-data` and `push-data` verify both sides afterwards — every file, by byte
+size — and retry up to six times, because each pass only moves what is still
+missing. Never take a bare "Done" as evidence; look for the `verified:` line.
+
+**If a large file keeps failing, raise the throughput** so it finishes inside a
+single pass:
+
+```bash
+aws configure set s3.max_concurrent_requests 24 --profile echo-mfa
+aws configure set s3.multipart_chunksize 64MB --profile echo-mfa
+```
+
+Worth doing once on any machine that will move this data.
+
 ## Troubleshooting
 
 **`pg_dump: server version 16, pg_dump version 15`** — your client is older than

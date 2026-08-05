@@ -117,8 +117,8 @@ def dump_db(schema_only=False, upload=False):
         aws.require_session()
         step("Uploading to S3")
         destination = "s3://{}/dumps/{}".format(config['ECHO_DATA_BUCKET'], outfile.name)
-        aws.run(['s3', 'cp', str(outfile), destination], region=config['AWS_REGION'],
-                capture=False)
+        aws.run(['s3', 'cp', str(outfile), destination, '--only-show-errors'],
+                region=config['AWS_REGION'], capture=False)
         ok("Uploaded to {}".format(destination))
 
     say()

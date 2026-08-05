@@ -4,10 +4,10 @@ The raw inputs and generated intermediates are far too large for git —
 results.csv alone is about 2.5 GB — so S3 holds the shared copy. Without this,
 a new machine cannot rebuild the dataset at all.
 """
-from . import aws
+from . import aws, transfer
 from .config import (CLEAN_DATA_DIR, DUMPS_DIR, RAW_DATA_DIR, S3_CLEAN_PREFIX,
                      S3_DUMP_PREFIX, S3_RAW_PREFIX, load_deploy_config)
-from .console import detail, die, ok, say, step, warn
+from .console import bad, detail, die, ok, say, step, warn
 
 # What each name covers: local directory, S3 prefix, description.
 PARTS = {
@@ -15,6 +15,71 @@ PARTS = {
     'clean': (CLEAN_DATA_DIR, S3_CLEAN_PREFIX, "generated intermediates (clean_output_national)"),
     'dumps': (DUMPS_DIR,      S3_DUMP_PREFIX,  "database dumps"),
 }
+
+
+def _local_inventory(local_dir):
+    """{relative path: size} for everything under local_dir."""
+    inventory = {}
+    for path in local_dir.rglob('*'):
+        if path.is_file():
+            inventory[path.relative_to(local_dir).as_posix()] = path.stat().st_size
+    return inventory
+
+
+def _remote_inventory(config, prefix):
+    """{key below prefix: size} for everything in S3 under prefix."""
+    listing = aws.run(['s3', 'ls', "s3://{}/{}/".format(config['ECHO_DATA_BUCKET'], prefix),
+                       '--recursive'], region=config['AWS_REGION'])
+    inventory = {}
+    for line in listing.splitlines():
+        parts = line.split(None, 3)
+        if len(parts) == 4 and parts[2].isdigit():
+            key = parts[3]
+            if key.startswith(prefix + '/'):
+                inventory[key[len(prefix) + 1:]] = int(parts[2])
+    return inventory
+
+
+def _verify(config, local_dir, prefix, description, direction):
+    """Confirm the transfer actually finished.
+
+    `aws s3 sync` has been observed exiting 0 with files still outstanding, so
+    the exit code alone is not evidence of success. Comparing both sides is —
+    and a half-copied dataset that reports success is worse than a loud failure,
+    because it gets discovered much later.
+    """
+    local = _local_inventory(local_dir)
+    remote = _remote_inventory(config, prefix)
+
+    # Whichever side is the destination must end up with everything the source
+    # has; sizes must match on both.
+    source, dest = (remote, local) if direction == 'pull' else (local, remote)
+    missing = sorted(set(source) - set(dest))
+    truncated = sorted(name for name in set(source) & set(dest)
+                       if source[name] != dest[name])
+
+    outstanding = sorted(set(missing) | set(truncated))
+    if not outstanding:
+        ok("verified: {} files, {:.1f} GB on both sides".format(
+            len(source), sum(source.values()) / 1024 ** 3))
+        return []
+
+    where = 'this machine' if direction == 'pull' else 'S3'
+    bad("{} did NOT transfer completely".format(description))
+    if missing:
+        detail("{} file(s) missing from {}:".format(len(missing), where))
+        for name in missing[:10]:
+            detail("  {} ({:.0f} MB)".format(name, source[name] / 1024 ** 2))
+        if len(missing) > 10:
+            detail("  ... and {} more".format(len(missing) - 10))
+    if truncated:
+        detail("{} file(s) differ in size:".format(len(truncated)))
+        for name in truncated[:10]:
+            detail("  {} (local {}, remote {})".format(name, local[name], remote[name]))
+
+    # Report each outstanding file with the size it should be, so the caller can
+    # decide which need the chunked path.
+    return [(name, source[name]) for name in outstanding]
 
 
 def _sync(config, direction, part, dry_run):
@@ -34,13 +99,59 @@ def _sync(config, direction, part, dry_run):
         detail("{}  ->  {}".format(local_dir, remote))
         source, destination = str(local_dir), remote
 
-    args = ['s3', 'sync', source, destination]
+    # --only-show-errors is not cosmetic: the default per-megabyte progress
+    # output floods the pipe on multi-GB transfers and can get the process
+    # torn down mid-copy. Completion is confirmed by _verify() instead.
+    args = ['s3', 'sync', source, destination, '--only-show-errors']
     if dry_run:
         args.append('--dryrun')
     # Deliberately no --delete: a sync must never remove something another
     # machine still depends on. Prune S3 by hand if it genuinely needs it.
     aws.run(args, region=config['AWS_REGION'], capture=False)
-    ok("{} done".format(description))
+
+    if dry_run:
+        return True
+
+    # Re-run until both sides agree. `s3 sync` only moves what is missing, so
+    # each pass is cheaper than the last.
+    #
+    # Anything large that is still outstanding goes through the chunked path
+    # instead: `s3 sync` transfers a file in one long-lived operation, so an
+    # interruption discards all of it and the next pass starts that file from
+    # zero. A multi-GB file on a slow or unreliable link may never finish that
+    # way, however many times it is retried.
+    attempts = 4
+    for attempt in range(attempts):
+        outstanding = _verify(config, local_dir, prefix, description, direction)
+        if not outstanding:
+            return True
+        if attempt == attempts - 1:
+            break
+
+        large = [(name, size) for name, size in outstanding
+                 if size >= transfer.LARGE_FILE_BYTES]
+        small = [name for name, size in outstanding
+                 if size < transfer.LARGE_FILE_BYTES]
+
+        if large:
+            step("Transferring {} large file(s) in chunks".format(len(large)))
+            detail("Chunked transfers resume instead of restarting.")
+            for name, _size in large:
+                key = "{}/{}".format(prefix, name)
+                target = local_dir / name
+                if direction == 'pull':
+                    transfer.download_chunked(config, key, target)
+                else:
+                    transfer.upload_chunked(config, target, key)
+
+        if small:
+            warn("Retrying {} smaller file(s) (pass {} of {})".format(
+                len(small), attempt + 2, attempts))
+            aws.run(args, region=config['AWS_REGION'], capture=False)
+
+    die("{} is still incomplete.".format(description),
+        "Re-run this command — it resumes, so repeated runs make progress even\n"
+        "on a slow or unreliable connection.")
 
 
 def sync_data(direction, what='all', dry_run=False):

@@ -10,6 +10,8 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 import os, logging
 from dotenv import load_dotenv
+
+from db_target import confirm_target
 from create_national import (
     CSV_FILE_MAP, ALL_RENAMES, ALL_INDICATOR_NAMES,
     REVAMP_DIR, format_geoid, SHAPEFILE_MAP
@@ -196,4 +198,5 @@ def main():
 
 
 if __name__ == "__main__":
+    confirm_target("load results into")
     main()

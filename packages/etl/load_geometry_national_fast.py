@@ -16,6 +16,8 @@ from shapely.geometry import shape, MultiPolygon
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 
+from db_target import confirm_target
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
@@ -145,4 +147,5 @@ def load_geometry_data():
 
 
 if __name__ == "__main__":
+    confirm_target("load geometry into")
     load_geometry_data()

@@ -5,6 +5,8 @@ import os
 from dotenv import load_dotenv
 import logging
 
+from db_target import confirm_target
+
 # --- CONFIGURATION ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -125,4 +127,5 @@ def load_geometry_data():
         raise
 
 if __name__ == "__main__":
+    confirm_target("load geometry into")
     load_geometry_data()

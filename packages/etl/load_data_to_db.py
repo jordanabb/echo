@@ -4,6 +4,8 @@ import os
 from dotenv import load_dotenv
 import logging
 
+from db_target import confirm_target
+
 # --- 1. CONFIGURATION ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -169,4 +171,5 @@ def load_data():
 
 
 if __name__ == "__main__":
+    confirm_target("load data into")
     load_data()

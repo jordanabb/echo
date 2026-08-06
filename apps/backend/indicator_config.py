@@ -370,4 +370,10 @@ INDICATOR_METADATA = {
         "description": "Percent of students experiencing homelessness.",
         "available_years": [2015, 2016, 2017, 2018, 2019, 2020, 2021]
     },
+    "child_poverty_rate": {
+        "name": "Children in Poverty (%)",
+        "theme": "Economic Security",
+        "description": "Percent of children under 18 living below the federal poverty level, from Census SAIPE estimates.",
+        "available_years": [2022]
+    },
 }

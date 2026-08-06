@@ -173,20 +173,31 @@ def _write_verified(new_text, expect_key):
     ok("Updated {}".format(INDICATOR_CONFIG.name))
 
 
-def _add_indicator(display_name, years, existing_themes):
-    """Prompt for the parts that cannot be derived, then insert the entry."""
+def _add_indicator(display_name, years, existing_themes,
+                   key=None, theme=None, description=None):
+    """Insert an entry, prompting only for what was not supplied up front.
+
+    Supplying all three makes this non-interactive, which is what allows the
+    step to be scripted or replayed rather than only typed.
+    """
+    preset = bool(key and theme and description)
+
     say()
     step('Adding "{}"'.format(display_name))
     detail("Years found in the data: {}".format(years))
 
     suggested = re.sub(r'[^a-z0-9]+', '_', display_name.lower()).strip('_')[:40]
-    key = ask("Short id used by the API (letters, numbers, underscores)", default=suggested)
+    if not key:
+        key = ask("Short id used by the API (letters, numbers, underscores)",
+                  default=suggested)
     if not re.match(r'^[a-z][a-z0-9_]*$', key):
         die("'{}' is not a usable id.".format(key),
             "Use lowercase letters, numbers and underscores, starting with a letter.")
 
-    theme = choose("Which theme does it belong to?", existing_themes, allow_new=True)
-    description = ask("One-sentence description (shown in the dashboard)")
+    if not theme:
+        theme = choose("Which theme does it belong to?", existing_themes, allow_new=True)
+    if not description:
+        description = ask("One-sentence description (shown in the dashboard)")
 
     entry = (
         '    "{key}": {{\n'
@@ -202,7 +213,8 @@ def _add_indicator(display_name, years, existing_themes):
     say("This will be added to indicator_config.py:")
     say()
     say(entry.rstrip())
-    confirm("Add this indicator?")
+    if not preset:
+        confirm("Add this indicator?")
 
     text = INDICATOR_CONFIG.read_text(encoding='utf-8')
     open_index = text.index('{', text.index('INDICATOR_METADATA'))
@@ -226,8 +238,12 @@ def _update_years(key, years):
     _write_verified(text[:start] + new_block + text[end:], key)
 
 
-def sync_indicators():
-    """Interactively bring indicator_config.py in line with the database."""
+def sync_indicators(key=None, theme=None, description=None):
+    """Bring indicator_config.py in line with the database.
+
+    Interactive by default. Passing key, theme and description together fills in
+    a single missing indicator without prompting.
+    """
     target = resolve_db_target()
     metadata, db_indicators, missing_from_config, _, year_drift = _report(target)
 
@@ -246,11 +262,17 @@ def sync_indicators():
     if missing_from_config:
         themes = sorted({meta['theme'] for meta in metadata.values()})
         remaining = list(missing_from_config)
+        preset = bool(key and theme and description)
         while remaining:
             say()
-            display_name = choose(
-                "Which indicator should be added to the config?", remaining)
-            _add_indicator(display_name, db_indicators[display_name], themes)
+            if preset and len(remaining) == 1:
+                # Nothing to disambiguate, and the details were supplied.
+                display_name = remaining[0]
+            else:
+                display_name = choose(
+                    "Which indicator should be added to the config?", remaining)
+            _add_indicator(display_name, db_indicators[display_name], themes,
+                           key=key, theme=theme, description=description)
             remaining.remove(display_name)
             if remaining:
                 say()

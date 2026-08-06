@@ -83,9 +83,15 @@ def build_parser():
         "Read-only. Finds data with no config entry (invisible in the dashboard),\n"
         "config entries with no data, and years loaded but not selectable.")
 
-    add('sync-indicators', "add missing indicators and years to indicator_config.py",
-        "Interactive. Derives available_years from the data and offers exact display\n"
-        "names from the database so nothing has to be retyped.")
+    sync = add('sync-indicators',
+               "add missing indicators and years to indicator_config.py",
+               "Interactive by default. Derives available_years from the data and offers\n"
+               "exact display names from the database so nothing has to be retyped.\n\n"
+               "Passing --key, --theme and --description together fills in a single\n"
+               "missing indicator without prompting.")
+    sync.add_argument('--key', help="short id used by the API, e.g. child_poverty_rate")
+    sync.add_argument('--theme', help="theme heading, e.g. 'Economic Security'")
+    sync.add_argument('--description', help="one sentence shown in the dashboard")
 
     backend = add('deploy-backend', "build, push and roll out the backend",
                   "Builds a linux/amd64 image, pushes to ECR Public, then explicitly\n"
@@ -125,7 +131,8 @@ def dispatch(args):
     if args.command == 'check-indicators':
         return indicators.check_indicators()
     if args.command == 'sync-indicators':
-        return indicators.sync_indicators()
+        return indicators.sync_indicators(key=args.key, theme=args.theme,
+                                          description=args.description)
     if args.command == 'deploy-backend':
         return deploy.deploy_backend(skip_checks=args.skip_checks)
     if args.command == 'deploy-frontend':

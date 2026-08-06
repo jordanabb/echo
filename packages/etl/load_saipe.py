@@ -49,9 +49,13 @@ VALUE_COLUMN = "poverty_rate"
 # The legislative file covers both chambers and is split by its 'house' column;
 # the others map to a single level.
 SOURCE_FILES = {
-    'saipe_counties_22.csv': {'id_col': 'GEOID', 'geo_level': 'county'},
-    'saipe_tracts_22.csv':   {'id_col': 'GEOID', 'geo_level': 'tract'},
-    'saipe_leg_22.csv':      {'id_col': 'LEGID', 'geo_level': 'legislative'},
+    'county': {'file': 'saipe_counties_22.csv', 'id_col': 'GEOID',
+               'geo_level': 'county', 'levels': ['county']},
+    'tract':  {'file': 'saipe_tracts_22.csv', 'id_col': 'GEOID',
+               'geo_level': 'tract', 'levels': ['tract']},
+    # One file, two geography levels, split by its 'house' column.
+    'legislative': {'file': 'saipe_leg_22.csv', 'id_col': 'LEGID',
+                    'geo_level': 'legislative', 'levels': ['sldu', 'sldl']},
 }
 
 # -----------------------------------------------------------------------------
@@ -81,8 +85,9 @@ def find_malformed(df, id_col):
     return scientific | wrong_width
 
 
-def load_file(filename, spec):
+def load_file(spec):
     """Read one SAIPE CSV and return it as long-format rows."""
+    filename = spec['file']
     path = os.path.join(REVAMP_DIR, filename)
     if not os.path.exists(path):
         logging.warning(f"  Missing: {filename} — skipping")
@@ -139,13 +144,24 @@ def main():
     parser.add_argument('--allow-malformed', action='store_true',
                         help='Load anyway, accepting that the affected areas will '
                              'be missing from the dashboard.')
+    parser.add_argument('--only', nargs='+', choices=sorted(SOURCE_FILES),
+                        metavar='SOURCE',
+                        help='Load only these sources ({}). Existing rows for the '
+                             'levels NOT selected are left untouched, so sources can '
+                             'be loaded separately.'.format(', '.join(sorted(SOURCE_FILES))))
     args = parser.parse_args()
 
     target = confirm_target("load SAIPE poverty data into", dry_run=args.dry_run)
     engine = create_engine(target.url)
 
-    logging.info("=== Reading source files ===")
-    parts = [load_file(name, spec) for name, spec in SOURCE_FILES.items()]
+    selected = {k: v for k, v in SOURCE_FILES.items()
+                if not args.only or k in args.only}
+    # Only the levels being loaded are replaced. Deleting every row for the
+    # indicator would silently destroy a source loaded on an earlier run.
+    levels = sorted({lvl for spec in selected.values() for lvl in spec['levels']})
+    logging.info("=== Reading source files: {} ===".format(', '.join(sorted(selected))))
+    logging.info("    replacing geo levels: {}".format(', '.join(levels)))
+    parts = [load_file(spec) for spec in selected.values()]
     new_df = pd.concat([p for p in parts if not p.empty], ignore_index=True)
 
     if new_df.empty:
@@ -200,10 +216,17 @@ def main():
         before = conn.execute(
             text("SELECT COUNT(*) FROM results_data WHERE indicator_id = :n"),
             {"n": INDICATOR_NAME}).scalar()
-        logging.info(f"=== Existing rows for this indicator: {before:,} ===")
+        scoped = conn.execute(
+            text("SELECT COUNT(*) FROM results_data WHERE indicator_id = :n "
+                 "AND geo_level::text = ANY(:levels)"),
+            {"n": INDICATOR_NAME, "levels": levels}).scalar()
+        logging.info(f"=== Existing rows: {before:,} total, "
+                     f"{scoped:,} in the levels being replaced ===")
 
-        conn.execute(text("DELETE FROM results_data WHERE indicator_id = :n"),
-                     {"n": INDICATOR_NAME})
+        conn.execute(
+            text("DELETE FROM results_data WHERE indicator_id = :n "
+                 "AND geo_level::text = ANY(:levels)"),
+            {"n": INDICATOR_NAME, "levels": levels})
         new_df.to_sql('results_data', conn, if_exists='append', index=False,
                       chunksize=50000)
 

@@ -98,6 +98,9 @@ def build_parser():
                   "tells App Runner to pull it — pushing alone does not deploy.")
     backend.add_argument('--skip-checks', action='store_true',
                          help="do not compare indicator config against the database first")
+    backend.add_argument('--yes', action='store_true',
+                         help="skip the confirmation prompt (for non-interactive use; "
+                              "the decision to deploy must already have been made)")
 
     add('deploy-frontend', "build the SPA, upload to S3 and invalidate CloudFront",
         "The upload uses --delete and the bucket is not versioned, so a bad build\n"
@@ -134,7 +137,8 @@ def dispatch(args):
         return indicators.sync_indicators(key=args.key, theme=args.theme,
                                           description=args.description)
     if args.command == 'deploy-backend':
-        return deploy.deploy_backend(skip_checks=args.skip_checks)
+        return deploy.deploy_backend(skip_checks=args.skip_checks,
+                                    assume_yes=args.yes)
     if args.command == 'deploy-frontend':
         return deploy.deploy_frontend()
     return 1

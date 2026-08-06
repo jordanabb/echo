@@ -18,9 +18,11 @@ Usage:
     python3 load_saipe.py              # load
 """
 import argparse
+import io
 import logging
 import os
 import sys
+import time
 
 import pandas as pd
 from sqlalchemy import create_engine, text
@@ -59,6 +61,70 @@ SOURCE_FILES = {
 }
 
 # -----------------------------------------------------------------------------
+
+
+# Column order used for both the dataframe and the COPY statement.
+COLUMNS = ['geo_id', 'geo_level', 'year', 'indicator_id', 'value']
+
+# Rows per COPY. Small enough that each chunk finishes before an unreliable link
+# has a chance to drop it, and each one is retried independently.
+CHUNK_ROWS = 5000
+MAX_ATTEMPTS = 4
+
+# Rows are staged in a real table rather than a temporary one: a TEMP table dies
+# with its connection, which is precisely the event being defended against.
+STAGING_TABLE = '_saipe_staging'
+
+
+def copy_chunks(engine, df):
+    """Stream rows into the staging table, a chunk per connection.
+
+    A single COPY of the whole set is one long-lived connection, and losing it
+    anywhere means starting over. Chunking bounds what a dropped connection
+    costs to whatever the current chunk was.
+    """
+    with engine.begin() as conn:
+        conn.execute(text(f"DROP TABLE IF EXISTS {STAGING_TABLE}"))
+        # No indexes and no constraints: this table exists only to receive rows
+        # quickly, and is validated by row count before anything depends on it.
+        conn.execute(text(
+            f"CREATE TABLE {STAGING_TABLE} ("
+            "geo_id VARCHAR(20), geo_level VARCHAR(50), year INTEGER, "
+            "indicator_id TEXT, value VARCHAR(50))"))
+
+    total = len(df)
+    done = 0
+    for start in range(0, total, CHUNK_ROWS):
+        chunk = df.iloc[start:start + CHUNK_ROWS]
+        buf = io.StringIO()
+        chunk.to_csv(buf, index=False, header=False, columns=COLUMNS)
+
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            try:
+                buf.seek(0)
+                with engine.begin() as conn:
+                    cur = conn.connection.cursor()
+                    cur.copy_expert(
+                        f"COPY {STAGING_TABLE} ({', '.join(COLUMNS)}) "
+                        "FROM STDIN WITH (FORMAT csv)", buf)
+                break
+            except Exception as exc:
+                if attempt == MAX_ATTEMPTS:
+                    raise
+                wait = 2 ** attempt
+                logging.warning(f"  chunk at row {start:,} failed "
+                                f"({type(exc).__name__}); retrying in {wait}s")
+                time.sleep(wait)
+                engine.dispose()   # do not reuse a socket that just died
+
+        done += len(chunk)
+        logging.info(f"  staged {done:,}/{total:,} rows")
+
+    with engine.connect() as conn:
+        staged = conn.execute(text(f"SELECT COUNT(*) FROM {STAGING_TABLE}")).scalar()
+    if staged != total:
+        raise RuntimeError(f"staging holds {staged:,} rows, expected {total:,}")
+    return staged
 
 
 # Width each level's identifier must have once normalised. Letters are allowed —
@@ -152,7 +218,12 @@ def main():
     args = parser.parse_args()
 
     target = confirm_target("load SAIPE poverty data into", dry_run=args.dry_run)
-    engine = create_engine(target.url)
+    # Keepalives matter over the public internet: RDS is reached across it, and a
+    # long bulk load on an idle-looking socket is what gets silently severed.
+    engine = create_engine(target.url, connect_args={
+        'keepalives': 1, 'keepalives_idle': 30,
+        'keepalives_interval': 10, 'keepalives_count': 5,
+    })
 
     selected = {k: v for k, v in SOURCE_FILES.items()
                 if not args.only or k in args.only}
@@ -212,7 +283,7 @@ def main():
         logging.info("Dry run — no changes written.")
         return
 
-    with engine.begin() as conn:
+    with engine.connect() as conn:
         before = conn.execute(
             text("SELECT COUNT(*) FROM results_data WHERE indicator_id = :n"),
             {"n": INDICATOR_NAME}).scalar()
@@ -220,20 +291,30 @@ def main():
             text("SELECT COUNT(*) FROM results_data WHERE indicator_id = :n "
                  "AND geo_level::text = ANY(:levels)"),
             {"n": INDICATOR_NAME, "levels": levels}).scalar()
-        logging.info(f"=== Existing rows: {before:,} total, "
-                     f"{scoped:,} in the levels being replaced ===")
+    logging.info(f"=== Existing rows: {before:,} total, "
+                 f"{scoped:,} in the levels being replaced ===")
 
+    logging.info("=== Staging rows ===")
+    copy_chunks(engine, new_df)
+
+    # Everything below runs inside the database: no rows cross the network, so a
+    # flaky link cannot interrupt the part that has to be atomic.
+    logging.info("=== Swapping into results_data ===")
+    with engine.begin() as conn:
         conn.execute(
             text("DELETE FROM results_data WHERE indicator_id = :n "
                  "AND geo_level::text = ANY(:levels)"),
             {"n": INDICATOR_NAME, "levels": levels})
-        new_df.to_sql('results_data', conn, if_exists='append', index=False,
-                      chunksize=50000)
+        conn.execute(text(
+            f"INSERT INTO results_data ({', '.join(COLUMNS)}) "
+            f"SELECT {', '.join(COLUMNS)} FROM {STAGING_TABLE}"))
+        conn.execute(text(f"DROP TABLE {STAGING_TABLE}"))
 
+    with engine.connect() as conn:
         after = conn.execute(
             text("SELECT COUNT(*) FROM results_data WHERE indicator_id = :n"),
             {"n": INDICATOR_NAME}).scalar()
-        logging.info(f"=== Rows after load: {after:,} (delta {after - before:+,}) ===")
+    logging.info(f"=== Rows after load: {after:,} (delta {after - before:+,}) ===")
 
     logging.info("Done.")
     logging.info(f"Next: add '{INDICATOR_NAME}' to the dashboard config with")

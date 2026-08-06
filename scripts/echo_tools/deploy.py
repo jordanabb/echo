@@ -27,7 +27,7 @@ def _run(command, cwd=None, what=None):
             "The command's own output is above and usually says why.")
 
 
-def deploy_backend(skip_checks=False):
+def deploy_backend(skip_checks=False, assume_yes=False):
     """Build, push, and roll out the FastAPI backend.
 
     App Runner does not redeploy when a new image is pushed
@@ -49,7 +49,7 @@ def deploy_backend(skip_checks=False):
             if indicators.check_indicators() != 0:
                 say()
                 warn("The config and database disagree (details above).")
-                if not ask_yes_no("Deploy anyway?", default=False):
+                if not (assume_yes or ask_yes_no("Deploy anyway?", default=False)):
                     die("Aborted — nothing was deployed.",
                         "Fix it with: python scripts/echo.py sync-indicators")
         except Exception as exc:  # a local DB being down must not block a deploy
@@ -61,7 +61,10 @@ def deploy_backend(skip_checks=False):
     detail("image:   {}".format(image))
     detail("service: {}".format(service_arn.split('/')[-2] if '/' in service_arn else service_arn))
     detail("There is no staging environment; this replaces what is live.")
-    confirm("Deploy the backend now?")
+    if assume_yes:
+        warn("Proceeding without asking (--yes).")
+    else:
+        confirm("Deploy the backend now?")
 
     step("1/4 Authenticating Docker against ECR Public")
     # ECR Public only answers in us-east-1, wherever else the stack may live.

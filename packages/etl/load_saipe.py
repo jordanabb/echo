@@ -21,6 +21,7 @@ import argparse
 import io
 import logging
 import os
+import pathlib
 import sys
 import time
 
@@ -47,18 +48,11 @@ INDICATOR_NAME = "Children in Poverty (%)"
 # Column in the source CSVs holding the value.
 VALUE_COLUMN = "poverty_rate"
 
-# Source file -> (id column, how to derive geo_level).
-# The legislative file covers both chambers and is split by its 'house' column;
-# the others map to a single level.
-SOURCE_FILES = {
-    'county': {'file': 'saipe_counties_22.csv', 'id_col': 'GEOID',
-               'geo_level': 'county', 'levels': ['county']},
-    'tract':  {'file': 'saipe_tracts_22.csv', 'id_col': 'GEOID',
-               'geo_level': 'tract', 'levels': ['tract']},
-    # One file, two geography levels, split by its 'house' column.
-    'legislative': {'file': 'saipe_leg_22.csv', 'id_col': 'LEGID',
-                    'geo_level': 'legislative', 'levels': ['sldu', 'sldl']},
-}
+# The three kinds of source this loader understands. Which file is which is
+# worked out by inspecting the contents, not by matching filenames -- exports
+# get renamed, dated, and suffixed with "(1)", and a filename check turns that
+# into a silent no-op.
+KINDS = ('county', 'tract', 'legislative')
 
 # -----------------------------------------------------------------------------
 
@@ -132,6 +126,67 @@ def copy_chunks(engine, df):
 # MD 1A, AK senate A-T) and those are valid Census identifiers.
 EXPECTED_WIDTH = {'county': 5, 'tract': 11, 'sldu': 5, 'sldl': 5,
                   'school_district': 7, 'congressional_district': 4}
+
+
+def discover_sources(directory):
+    """Classify every CSV in `directory` by its columns and identifier widths.
+
+    Returns {kind: spec}. A file is only considered if it carries the value and
+    year columns this loader needs, so unrelated CSVs sitting in the same folder
+    are ignored rather than misread.
+    """
+    directory = os.path.abspath(directory)
+    if not os.path.isdir(directory):
+        logging.error(f"Not a directory: {directory}")
+        logging.error("Set ECHO_RAW_DIR to the folder holding the source CSVs.")
+        sys.exit(1)
+
+    found = {}
+    for path in sorted(pathlib.Path(directory).glob('*.csv')):
+        try:
+            head = pd.read_csv(path, nrows=200, dtype=str)
+        except Exception as exc:
+            logging.debug(f"  unreadable, ignoring: {path.name} ({exc})")
+            continue
+
+        cols = set(head.columns)
+        if VALUE_COLUMN not in cols or 'Year' not in cols:
+            continue          # not a SAIPE file; nothing to say about it
+
+        if {'LEGID', 'house'} <= cols:
+            kind, id_col, level, levels = 'legislative', 'LEGID', 'legislative', ['sldu', 'sldl']
+        elif 'GEOID' in cols:
+            widths = head['GEOID'].dropna().str.len().mode()
+            width = int(widths.iloc[0]) if len(widths) else 0
+            if width == EXPECTED_WIDTH['county']:
+                kind, id_col, level, levels = 'county', 'GEOID', 'county', ['county']
+            elif width == EXPECTED_WIDTH['tract']:
+                kind, id_col, level, levels = 'tract', 'GEOID', 'tract', ['tract']
+            else:
+                logging.warning(f"  {path.name}: GEOIDs are {width} characters, "
+                                f"which matches no geography level — ignoring")
+                continue
+        else:
+            logging.warning(f"  {path.name}: has {VALUE_COLUMN} but no GEOID or "
+                            f"LEGID column — ignoring")
+            continue
+
+        if kind in found:
+            logging.error(f"Two files both look like {kind} data: "
+                          f"{found[kind]['file']} and {path.name}")
+            logging.error("Remove or move one; there is no way to tell which is intended.")
+            sys.exit(1)
+
+        found[kind] = {'file': path.name, 'id_col': id_col,
+                       'geo_level': level, 'levels': levels}
+        logging.info(f"  {path.name}  ->  {kind}")
+
+    if not found:
+        logging.error(f"No SAIPE files found in {directory}")
+        logging.error(f"Files must contain '{VALUE_COLUMN}' and 'Year' columns, "
+                      f"plus GEOID or LEGID.")
+        sys.exit(1)
+    return found
 
 
 def find_malformed(df, id_col):
@@ -210,11 +265,10 @@ def main():
     parser.add_argument('--allow-malformed', action='store_true',
                         help='Load anyway, accepting that the affected areas will '
                              'be missing from the dashboard.')
-    parser.add_argument('--only', nargs='+', choices=sorted(SOURCE_FILES),
-                        metavar='SOURCE',
+    parser.add_argument('--only', nargs='+', choices=KINDS, metavar='SOURCE',
                         help='Load only these sources ({}). Existing rows for the '
                              'levels NOT selected are left untouched, so sources can '
-                             'be loaded separately.'.format(', '.join(sorted(SOURCE_FILES))))
+                             'be loaded separately.'.format(', '.join(KINDS)))
     args = parser.parse_args()
 
     target = confirm_target("load SAIPE poverty data into", dry_run=args.dry_run)
@@ -225,8 +279,17 @@ def main():
         'keepalives_interval': 10, 'keepalives_count': 5,
     })
 
-    selected = {k: v for k, v in SOURCE_FILES.items()
+    logging.info(f"=== Looking for source files in {os.path.abspath(REVAMP_DIR)} ===")
+    discovered = discover_sources(REVAMP_DIR)
+
+    selected = {k: v for k, v in discovered.items()
                 if not args.only or k in args.only}
+    if args.only:
+        absent = [k for k in args.only if k not in discovered]
+        if absent:
+            logging.error(f"Asked for {', '.join(absent)} but no such file was found.")
+            logging.error(f"Found: {', '.join(sorted(discovered)) or 'nothing'}")
+            sys.exit(1)
     # Only the levels being loaded are replaced. Deleting every row for the
     # indicator would silently destroy a source loaded on an earlier run.
     levels = sorted({lvl for spec in selected.values() for lvl in spec['levels']})

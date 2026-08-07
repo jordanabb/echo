@@ -238,7 +238,7 @@ def _update_years(key, years):
     _write_verified(text[:start] + new_block + text[end:], key)
 
 
-def sync_indicators(key=None, theme=None, description=None):
+def sync_indicators(key=None, theme=None, description=None, assume_yes=False):
     """Bring indicator_config.py in line with the database.
 
     Interactive by default. Passing key, theme and description together fills in
@@ -256,7 +256,10 @@ def sync_indicators(key=None, theme=None, description=None):
         step("{} has data for {} which is not selectable".format(key, undeclared))
         detail('display name: "{}"'.format(name))
         detail("available_years would become {}".format(all_years))
-        confirm("Update available_years for {}?".format(key))
+        if assume_yes:
+            warn("Updating without asking (--yes).")
+        else:
+            confirm("Update available_years for {}?".format(key))
         _update_years(key, all_years)
 
     if missing_from_config:

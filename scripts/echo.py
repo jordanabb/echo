@@ -92,6 +92,8 @@ def build_parser():
     sync.add_argument('--key', help="short id used by the API, e.g. child_poverty_rate")
     sync.add_argument('--theme', help="theme heading, e.g. 'Economic Security'")
     sync.add_argument('--description', help="one sentence shown in the dashboard")
+    sync.add_argument('--yes', action='store_true',
+                      help="apply year updates without asking (non-interactive use)")
 
     backend = add('deploy-backend', "build, push and roll out the backend",
                   "Builds a linux/amd64 image, pushes to ECR Public, then explicitly\n"
@@ -135,7 +137,8 @@ def dispatch(args):
         return indicators.check_indicators()
     if args.command == 'sync-indicators':
         return indicators.sync_indicators(key=args.key, theme=args.theme,
-                                          description=args.description)
+                                          description=args.description,
+                                          assume_yes=args.yes)
     if args.command == 'deploy-backend':
         return deploy.deploy_backend(skip_checks=args.skip_checks,
                                     assume_yes=args.yes)

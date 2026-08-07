@@ -18,7 +18,11 @@ import fiona
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Input directory
-REVAMP_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'ECHO REVAMP')
+# Where the raw source files live. Defaults to "ECHO REVAMP" beside the repo
+# root, but ECHO_RAW_DIR overrides it so the inputs can sit anywhere -- a
+# Documents folder, a shared drive -- without copying them into the checkout.
+REVAMP_DIR = os.environ.get('ECHO_RAW_DIR') or os.path.join(
+    os.path.dirname(__file__), '..', '..', 'ECHO REVAMP')
 
 # Output directory (separate from existing pipeline)
 OUTPUT_DIR = "clean_output_national/"

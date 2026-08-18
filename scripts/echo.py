@@ -100,10 +100,6 @@ def build_parser():
                   "tells App Runner to pull it — pushing alone does not deploy.")
     backend.add_argument('--skip-checks', action='store_true',
                          help="do not compare indicator config against the database first")
-    backend.add_argument('--skip-login', action='store_true',
-                         help="skip docker login; use credentials already in DOCKER_CONFIG "
-                              "(needed on Windows, where the default credential helper "
-                              "rejects ECR tokens as too large)")
     backend.add_argument('--yes', action='store_true',
                          help="skip the confirmation prompt (for non-interactive use; "
                               "the decision to deploy must already have been made)")
@@ -145,8 +141,7 @@ def dispatch(args):
                                           assume_yes=args.yes)
     if args.command == 'deploy-backend':
         return deploy.deploy_backend(skip_checks=args.skip_checks,
-                                     assume_yes=args.yes,
-                                     skip_login=args.skip_login)
+                                     assume_yes=args.yes)
     if args.command == 'deploy-frontend':
         return deploy.deploy_frontend()
     return 1

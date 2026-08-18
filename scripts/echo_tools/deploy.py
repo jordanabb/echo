@@ -4,9 +4,13 @@ Both deploy by overwriting the live artifact — there is no staging environment
 Each command prints the equivalent raw commands before running, so anyone can
 fall back to doing it by hand when something here misbehaves.
 """
+import base64
+import json
+import os
 import shutil
 import subprocess
 import time
+from pathlib import Path
 
 from . import aws, indicators
 from .config import FRONTEND_DIR, BACKEND_DIR, load_deploy_config
@@ -27,39 +31,41 @@ def _run(command, cwd=None, what=None):
             "The command's own output is above and usually says why.")
 
 
-def _docker_login():
-    """Authenticate Docker with ECR Public."""
-    step("1/4 Authenticating Docker against ECR Public")
+def _prepare_ecr_credentials():
+    """Write ECR credentials into a private Docker config and return its path.
+
+    Deliberately not `docker login`. On Windows the Docker CLI stores registry
+    credentials in Windows Credential Manager by default -- even with no
+    credsStore configured -- and Credential Manager rejects ECR tokens as too
+    large, failing with "The stub received bad data". Neither clearing the
+    setting nor redirecting DOCKER_CONFIG avoids it, because the helper is the
+    platform default rather than a configured choice.
+
+    Writing the auth entry ourselves is precisely what `docker login` would
+    write, minus the step that fails. It behaves identically on every platform,
+    so there is one code path rather than a Windows exception.
+    """
+    step("1/4 Preparing ECR credentials")
     # ECR Public only answers in us-east-1, wherever else the stack may live.
-    password = aws.run(['ecr-public', 'get-login-password'], region='us-east-1')
-    login = subprocess.run(
-        [shutil.which('docker') or 'docker', 'login', '--username', 'AWS',
-         '--password-stdin', 'public.ecr.aws'],
-        input=password, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    if login.returncode == 0:
-        ok("Docker authenticated")
-        return
+    token = aws.run(['ecr-public', 'get-login-password'], region='us-east-1')
+    blob = base64.b64encode("AWS:{}".format(token).encode()).decode()
 
-    output = login.stdout or ''
-    if 'stub received bad data' in output or 'error storing credentials' in output:
-        die("Docker could not store the credential.\n\n{}".format(output),
-            "This is a Windows credential-store limit, not a permissions problem:\n"
-            "ECR tokens are larger than Windows Credential Manager accepts, and the\n"
-            "Docker CLI uses that helper by default on Windows even with no\n"
-            "credsStore configured.\n\n"
-            "Write the credential directly instead, then rerun with --skip-login:\n"
-            "  $tok = aws ecr-public get-login-password --region us-east-1 --profile echo-mfa\n"
-            "  $auth = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(\"AWS:$tok\"))\n"
-            "  mkdir $HOME\\.docker-echo -Force\n"
-            "  '{\"auths\":{\"public.ecr.aws\":{\"auth\":\"' + $auth + '\"}}}' | Set-Content $HOME\\.docker-echo\\config.json -NoNewline\n"
-            "  $env:DOCKER_CONFIG = \"$HOME\\.docker-echo\"\n"
-            "  py scripts\\echo.py deploy-backend --skip-login")
-    die("docker login failed.\n\n{}".format(output),
-        "Check Docker Desktop is running. If the AWS call itself failed,\n"
-        "ecr-public also needs the sts:GetServiceBearerToken permission.")
+    directory = Path.home() / '.echo-docker'
+    directory.mkdir(exist_ok=True)
+    config_file = directory / 'config.json'
+    config_file.write_text(json.dumps(
+        {"auths": {"public.ecr.aws": {"auth": blob}}}))
+    try:
+        os.chmod(str(config_file), 0o600)  # ignored on Windows
+    except OSError:
+        pass
+
+    ok("Credentials ready (valid ~12 hours)")
+    detail("Stored in {}, outside Docker's own credential store.".format(directory))
+    return directory
 
 
-def deploy_backend(skip_checks=False, assume_yes=False, skip_login=False):
+def deploy_backend(skip_checks=False, assume_yes=False):
     """Build, push, and roll out the FastAPI backend.
 
     App Runner does not redeploy when a new image is pushed
@@ -98,16 +104,7 @@ def deploy_backend(skip_checks=False, assume_yes=False, skip_login=False):
     else:
         confirm("Deploy the backend now?")
 
-    if skip_login:
-        # Windows' Docker CLI defaults to the wincred credential helper, which
-        # rejects ECR tokens as too large ("The stub received bad data"), and it
-        # does so even when no credsStore is configured. The way out is to write
-        # the auth entry into a config file directly and never call docker login.
-        step("1/4 Skipping docker login (--skip-login)")
-        detail("Assuming DOCKER_CONFIG already holds a valid public.ecr.aws entry.")
-        ok("Using existing credentials")
-    else:
-        _docker_login()
+    auth_dir = _prepare_ecr_credentials()
 
     step("2/4 Building the image")
     # App Runner runs amd64. On an arm64 machine this is emulated and slow; without
@@ -119,7 +116,7 @@ def deploy_backend(skip_checks=False, assume_yes=False, skip_login=False):
     ok("Image built")
 
     step("3/4 Pushing to ECR Public")
-    _run(['docker', 'push', image], what="docker push")
+    _run(['docker', '--config', str(auth_dir), 'push', image], what="docker push")
     ok("Image pushed")
 
     step("4/4 Telling App Runner to pull it")

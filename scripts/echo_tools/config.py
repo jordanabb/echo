@@ -19,9 +19,12 @@ INDICATOR_CONFIG = BACKEND_DIR / 'indicator_config.py'
 VERIFY_SQL = REPO_ROOT / 'scripts' / 'verify_data.sql'
 DEPLOY_ENV = REPO_ROOT / '.env.deploy'
 
-# Raw ETL inputs live beside the repo root, matching REVAMP_DIR in
-# packages/etl/create_national.py.
-RAW_DATA_DIR = REPO_ROOT / 'ECHO REVAMP'
+# Raw ETL inputs. Defaults to "ECHO REVAMP" beside the repo root, but
+# ECHO_RAW_DIR overrides it — the same variable packages/etl/create_national.py
+# honours, so the loader and the S3 sync always read the same folder. They must
+# not diverge: a sync that quietly pushed a different directory than the one
+# just loaded would be invisible until someone else pulled the wrong data.
+RAW_DATA_DIR = Path(os.environ.get('ECHO_RAW_DIR') or (REPO_ROOT / 'ECHO REVAMP'))
 CLEAN_DATA_DIR = ETL_DIR / 'clean_output_national'
 
 # S3 layout inside ECHO_DATA_BUCKET.

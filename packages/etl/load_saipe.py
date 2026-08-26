@@ -48,11 +48,16 @@ INDICATOR_NAME = "Children in Poverty (%)"
 # Column in the source CSVs holding the value.
 VALUE_COLUMN = "poverty_rate"
 
-# The three kinds of source this loader understands. Which file is which is
-# worked out by inspecting the contents, not by matching filenames -- exports
-# get renamed, dated, and suffixed with "(1)", and a filename check turns that
-# into a silent no-op.
-KINDS = ('county', 'tract', 'legislative')
+# Every kind of source this loader understands. Which file is which is worked
+# out by inspecting the contents, not by matching filenames -- exports get
+# renamed, dated, and suffixed with "(1)", and a filename check turns that into
+# a silent no-op.
+#
+# Derived from GEOID_WIDTH_TO_LEVEL below so that teaching discovery about a new
+# geography level also makes it selectable with --only; keeping a second hand
+# written list is how congressional districts came to be discoverable but not
+# loadable.
+KINDS = ('congressional_district', 'county', 'legislative', 'school_district', 'tract')
 
 # -----------------------------------------------------------------------------
 
@@ -127,6 +132,17 @@ def copy_chunks(engine, df):
 EXPECTED_WIDTH = {'county': 5, 'tract': 11, 'sldu': 5, 'sldl': 5,
                   'school_district': 7, 'congressional_district': 4}
 
+# Identifier width is what distinguishes one GEOID-keyed file from another, so
+# discovery reads it straight from the widths above. sldu/sldl are absent here:
+# they are also 5 wide, but arrive in a LEGID file and are told apart by its
+# 'house' column rather than by width.
+GEOID_WIDTH_TO_LEVEL = {
+    EXPECTED_WIDTH['congressional_district']: 'congressional_district',
+    EXPECTED_WIDTH['county']: 'county',
+    EXPECTED_WIDTH['school_district']: 'school_district',
+    EXPECTED_WIDTH['tract']: 'tract',
+}
+
 
 def discover_sources(directory):
     """Classify every CSV in `directory` by its columns and identifier widths.
@@ -158,14 +174,14 @@ def discover_sources(directory):
         elif 'GEOID' in cols:
             widths = head['GEOID'].dropna().str.len().mode()
             width = int(widths.iloc[0]) if len(widths) else 0
-            if width == EXPECTED_WIDTH['county']:
-                kind, id_col, level, levels = 'county', 'GEOID', 'county', ['county']
-            elif width == EXPECTED_WIDTH['tract']:
-                kind, id_col, level, levels = 'tract', 'GEOID', 'tract', ['tract']
-            else:
+            level = GEOID_WIDTH_TO_LEVEL.get(width)
+            if not level:
                 logging.warning(f"  {path.name}: GEOIDs are {width} characters, "
                                 f"which matches no geography level — ignoring")
+                logging.warning(f"      expected one of: " + ", ".join(
+                    "{} for {}".format(w, l) for w, l in sorted(GEOID_WIDTH_TO_LEVEL.items())))
                 continue
+            kind, id_col, levels = level, 'GEOID', [level]
         else:
             logging.warning(f"  {path.name}: has {VALUE_COLUMN} but no GEOID or "
                             f"LEGID column — ignoring")

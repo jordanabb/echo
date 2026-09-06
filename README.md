@@ -69,18 +69,5 @@ python scripts/echo.py --help
 | `deploy-backend` | Build, push, and roll out the API. |
 | `deploy-frontend` | Build the SPA, upload it, and clear the CDN cache. |
 
-These wrap the same `aws`, `docker` and `psql` commands you would type by hand;
-[docs/adding-a-dataset.md](docs/adding-a-dataset.md) lists the raw equivalents so you
-are never dependent on the wrapper.
 
-## Things worth knowing
 
-- **There is no staging environment.** Both tiers deploy by overwriting what is live.
-  Take a snapshot before production data changes.
-- **Nothing deploys from git.** Pushing to a branch does not release anything; a
-  deploy only happens when someone runs a deploy command.
-- **The indicator list is hardcoded** in `apps/backend/indicator_config.py`, and is
-  compiled into the running backend. Data without an entry there is invisible, and
-  updating it requires a backend deploy.
-- **Secrets are not in this repository.** `.env` and `.env.deploy` are git-ignored,
-  and this repo is public — keep credentials out of it.

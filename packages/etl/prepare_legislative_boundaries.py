@@ -123,6 +123,49 @@ FIPS = {
 }
 
 
+def pick(available, *candidates):
+    """First candidate column present, ignoring case. None if none of them are.
+
+    Sources differ on capitalisation and on which name they use -- TIGER says
+    STATEFP and NAMELSAD, a file someone has already reshaped may say state and
+    Name -- and an exact-match lookup rejects the second kind for no good
+    reason.
+    """
+    lookup = {str(col).lower(): col for col in available}
+    for name in candidates:
+        if name.lower() in lookup:
+            return lookup[name.lower()]
+    return None
+
+
+# Reverse of FIPS, so a file identifying states by abbreviation is as usable as
+# one using the numeric code.
+BY_ABBREV = {abbrev: (fips, name) for fips, (abbrev, name) in FIPS.items()}
+
+
+def resolve_state(props, state_col, geo_id):
+    """Return (abbreviation, full name), or (None, None) if it cannot be told.
+
+    Accepts a FIPS code or a postal abbreviation, and falls back to the leading
+    two characters of the GEOID, which are the state FIPS by construction.
+    """
+    raw = str(props.get(state_col, '')).strip() if state_col else ''
+
+    if raw:
+        digits = raw.zfill(2)
+        if digits in FIPS:
+            return FIPS[digits]
+        upper = raw.upper()
+        if upper in BY_ABBREV:
+            _, name = BY_ABBREV[upper]
+            return upper, name
+
+    prefix = geo_id[:2]
+    if prefix in FIPS:
+        return FIPS[prefix]
+    return None, None
+
+
 def find_inputs(location):
     """Return [(path, chamber_or_None)] for the shapefile(s) to read.
 
@@ -176,15 +219,20 @@ def resolve_chamber(props, available, filename_chamber, override):
     if filename_chamber:
         return filename_chamber
 
-    if 'house' in available and props.get('house'):
-        return 'upper' if str(props['house']).strip().lower() == 'upper' else 'lower'
+    house_col = pick(available, 'house', 'chamber', 'HOUSE')
+    if house_col and props.get(house_col):
+        return 'upper' if str(props[house_col]).strip().lower() in ('upper', 'u', 'senate') \
+            else 'lower'
 
-    if 'MTFCC' in available and props.get('MTFCC'):
-        return MTFCC_CHAMBER.get(str(props['MTFCC']).strip().upper())
+    mtfcc_col = pick(available, 'MTFCC', 'MTFCC20')
+    if mtfcc_col and props.get(mtfcc_col):
+        return MTFCC_CHAMBER.get(str(props[mtfcc_col]).strip().upper())
 
-    if 'SLDUST' in available and 'SLDLST' not in available:
+    upper_col = pick(available, 'SLDUST', 'SLDUST20')
+    lower_col = pick(available, 'SLDLST', 'SLDLST20')
+    if upper_col and not lower_col:
         return 'upper'
-    if 'SLDLST' in available and 'SLDUST' not in available:
+    if lower_col and not upper_col:
         return 'lower'
     return None
 
@@ -230,20 +278,30 @@ def read_one(path, chamber, year_override, house_override=None):
     rows = []
     with fiona.open(str(path)) as src:
         available = set(src.schema['properties'])
-        missing = {'GEOID', 'STATEFP', 'NAMELSAD'} - available
-        if missing:
-            logging.warning(f"  {path.name}: missing {sorted(missing)} — skipping")
+        geoid_col = pick(available, 'GEOID', 'GEOID20', 'GEOID10', 'geo_id')
+        name_col = pick(available, 'NAMELSAD', 'NAMELSAD20', 'Name', 'NAME', 'geo_name')
+        state_col = pick(available, 'STATEFP', 'STATEFP20', 'STATEFP10',
+                         'state_fips', 'state', 'STUSPS', 'State')
+        lsy_col = pick(available, 'LSY', 'LSY20')
+
+        if not geoid_col or not name_col:
+            wanted = [n for n, c in (('GEOID', geoid_col), ('a name', name_col)) if not c]
+            logging.warning(f"  {path.name}: no column for {' and '.join(wanted)} "
+                            f"— skipping")
+            logging.warning(f"      columns present: {sorted(available)}")
             return rows
 
         reproject = _reprojector(src.crs)
-        has_lsy = 'LSY' in available
         skipped_states = set()
 
         for feature in src:
             props = feature['properties']
-            statefp = str(props['STATEFP']).strip().zfill(2)
-            if statefp not in FIPS:
-                skipped_states.add(statefp)
+            # Read as text throughout: a GEOID that becomes a number loses its
+            # leading zero and then matches no geography.
+            geo_id = str(props[geoid_col]).strip()
+            abbrev, state_name = resolve_state(props, state_col, geo_id)
+            if not abbrev:
+                skipped_states.add(str(props.get(state_col, '')).strip() or geo_id[:2])
                 continue
 
             house = resolve_chamber(props, available, chamber, house_override)
@@ -256,10 +314,9 @@ def read_one(path, chamber, year_override, house_override=None):
                               "holds one chamber.")
                 sys.exit(1)
 
-            abbrev, state_name = FIPS[statefp]
             # The existing names carry the districting plan's year in brackets,
             # which TIGER supplies as LSY (legislative session year).
-            plan_year = str(props['LSY']).strip() if has_lsy and props.get('LSY') else ''
+            plan_year = str(props[lsy_col]).strip() if lsy_col and props.get(lsy_col) else ''
             if not plan_year or plan_year.lower() == 'none':
                 plan_year = year
 
@@ -276,11 +333,9 @@ def read_one(path, chamber, year_override, house_override=None):
                 'properties': {
                     'Year': str(year),
                     'State': abbrev,
-                    # Read as text throughout: a GEOID that becomes a number
-                    # loses its leading zero and then matches no geography.
-                    'GEOID': str(props['GEOID']).strip(),
+                    'GEOID': geo_id,
                     'Name': "{} ({}), {}".format(
-                        str(props['NAMELSAD']).strip(), plan_year, state_name),
+                        str(props[name_col]).strip(), plan_year, state_name),
                     'house': house,
                 },
             })

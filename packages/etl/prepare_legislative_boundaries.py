@@ -33,6 +33,26 @@ Usage:
 
 Appending refuses to run if the target already contains the year being added,
 so re-running it cannot silently double the districts.
+
+File naming
+-----------
+Input names matter. TIGER files are found by looking for "sldu" or "sldl" in
+the filename, and the vintage is read from the "tl_<year>_" prefix, so keep
+Census's own names: tl_2023_01_sldu.shp. Renaming them either hides the file
+or loses the year (--year overrides the latter).
+
+Output names do not matter -- load_geographies.py takes whatever path it is
+given. The convention here is one file per vintage, beside the existing
+boundaries:
+
+    ECHO REVAMP/legdistgeos/leg_dist_<year>.shp
+
+Either .shp or .geojson works; the extension selects the format and both are
+read back identically. .shp is the default because it matches the file already
+in that folder and is roughly half the size, which matters when it is synced to
+S3. The tradeoff is that shapefile attribute fields have fixed widths -- Name is
+80 characters in the existing file -- and anything longer is truncated without
+warning. GeoJSON has no such limit and can be read in a text editor.
 """
 import argparse
 import datetime

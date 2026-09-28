@@ -81,8 +81,11 @@ TARGET_EPSG = 4326
 # State legislative district GEOIDs are state FIPS + 3 characters.
 GEOID_WIDTH = 5
 
-# TIGER names the chamber only through the file name.
+# TIGER names the chamber through the file name of a per-state download...
 CHAMBERS = {'sldu': 'upper', 'sldl': 'lower'}
+
+# ...and inside the data itself, which is the only thing a merged file has.
+MTFCC_CHAMBER = {'G5210': 'upper', 'G5220': 'lower'}
 
 OUTPUT_SCHEMA = {
     'geometry': 'MultiPolygon',
@@ -120,31 +123,70 @@ FIPS = {
 }
 
 
-def find_shapefiles(directory):
-    """Return [(path, chamber)] for every TIGER legislative shapefile below `directory`.
+def find_inputs(location):
+    """Return [(path, chamber_or_None)] for the shapefile(s) to read.
 
-    Searched recursively because unzipping fifty archives usually leaves fifty
-    folders rather than one flat pile.
+    Accepts either a single file -- including one already merged to cover both
+    chambers and every state -- or a directory, searched recursively because
+    unzipping a hundred TIGER archives usually leaves a hundred folders rather
+    than one flat pile.
+
+    A chamber of None means the filename did not say, and it has to be worked
+    out per row from the data instead.
     """
-    directory = pathlib.Path(directory).expanduser()
-    if not directory.is_dir():
-        logging.error(f"Not a directory: {directory}")
+    location = pathlib.Path(location).expanduser()
+
+    if location.is_file():
+        return [(location, chamber_from_filename(location))]
+
+    if not location.is_dir():
+        logging.error(f"No such file or directory: {location}")
         sys.exit(1)
 
     found = []
-    for path in sorted(directory.rglob('*.shp')):
-        lowered = path.name.lower()
-        for marker, chamber in CHAMBERS.items():
-            if marker in lowered:
-                found.append((path, chamber))
-                break
+    for path in sorted(location.rglob('*.shp')) + sorted(location.rglob('*.geojson')):
+        found.append((path, chamber_from_filename(path)))
 
     if not found:
-        logging.error(f"No legislative shapefiles found under {directory}")
-        logging.error("Expected file names containing 'sldu' (upper) or 'sldl' (lower),")
-        logging.error("e.g. tl_2023_01_sldu.shp. Unzip the TIGER downloads first.")
+        logging.error(f"No shapefiles found under {location}")
+        logging.error("Unzip the TIGER downloads first; this looks for .shp/.geojson.")
         sys.exit(1)
     return found
+
+
+def chamber_from_filename(path):
+    """'upper'/'lower' if TIGER's naming says so, else None."""
+    lowered = path.name.lower()
+    for marker, chamber in CHAMBERS.items():
+        if marker in lowered:
+            return chamber
+    return None
+
+
+def resolve_chamber(props, available, filename_chamber, override):
+    """Work out which chamber a district belongs to, or None if nothing says.
+
+    A merged file covering both chambers cannot say so through its name, so the
+    data has to. TIGER marks it with MTFCC (G5210 upper, G5220 lower); a file
+    already in ECHO format carries 'house'; and the per-chamber district number
+    columns only ever appear in their own chamber's file.
+    """
+    if override:
+        return override
+    if filename_chamber:
+        return filename_chamber
+
+    if 'house' in available and props.get('house'):
+        return 'upper' if str(props['house']).strip().lower() == 'upper' else 'lower'
+
+    if 'MTFCC' in available and props.get('MTFCC'):
+        return MTFCC_CHAMBER.get(str(props['MTFCC']).strip().upper())
+
+    if 'SLDUST' in available and 'SLDLST' not in available:
+        return 'upper'
+    if 'SLDLST' in available and 'SLDUST' not in available:
+        return 'lower'
+    return None
 
 
 def year_from_filename(path):
@@ -170,9 +212,16 @@ def _reprojector(source_crs):
     return lambda geom: shapely_transform(transformer.transform, geom)
 
 
-def read_one(path, chamber, year_override):
+def read_one(path, chamber, year_override, house_override=None):
     """Read one TIGER file and yield rows already shaped for the ECHO schema."""
     year = year_override or year_from_filename(path)
+    if not year:
+        # A file already in ECHO format carries the vintage in a column.
+        with fiona.open(str(path)) as probe:
+            if 'Year' in probe.schema['properties']:
+                first = next(iter(probe), None)
+                if first:
+                    year = str(first['properties']['Year']).strip()
     if not year:
         logging.error(f"Cannot tell which year {path.name} is for.")
         logging.error("Pass --year explicitly, or keep TIGER's tl_<year>_... names.")
@@ -196,6 +245,16 @@ def read_one(path, chamber, year_override):
             if statefp not in FIPS:
                 skipped_states.add(statefp)
                 continue
+
+            house = resolve_chamber(props, available, chamber, house_override)
+            if house is None:
+                logging.error(f"  {path.name}: cannot tell which chamber these "
+                              f"districts belong to.")
+                logging.error("  The filename does not say, and there is no 'house',")
+                logging.error("  'MTFCC', 'SLDUST' or 'SLDLST' column to go on.")
+                logging.error("  Pass --house upper or --house lower if this file "
+                              "holds one chamber.")
+                sys.exit(1)
 
             abbrev, state_name = FIPS[statefp]
             # The existing names carry the districting plan's year in brackets,
@@ -222,7 +281,7 @@ def read_one(path, chamber, year_override):
                     'GEOID': str(props['GEOID']).strip(),
                     'Name': "{} ({}), {}".format(
                         str(props['NAMELSAD']).strip(), plan_year, state_name),
-                    'house': chamber,
+                    'house': house,
                 },
             })
 
@@ -317,7 +376,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--input', required=True,
-                        help='Folder holding unzipped TIGER shapefiles (searched recursively).')
+                        help='A shapefile, or a folder of them (searched recursively). '
+                             'A single merged file covering both chambers and every '
+                             'state works too.')
+    parser.add_argument('--house', choices=['upper', 'lower'],
+                        help='Force the chamber. Only needed when one file holds a '
+                             'single chamber and neither its name nor its columns say so.')
     parser.add_argument('--year',
                         help='Data vintage to record. Default: read from the tl_<year>_ filename.')
     parser.add_argument('--output', help='Write a standalone shapefile here.')
@@ -330,16 +394,18 @@ def main():
     if not (args.output or args.append_to or args.dry_run):
         parser.error("give --output, --append-to, or --dry-run")
 
-    logging.info("=== Finding TIGER shapefiles ===")
-    files = find_shapefiles(args.input)
+    logging.info("=== Finding input files ===")
+    files = find_inputs(args.input)
     logging.info(f"Found {len(files)} file(s)")
 
     rows = []
     for path, chamber in files:
-        got = read_one(path, chamber, args.year)
+        got = read_one(path, chamber, args.year, args.house)
         if got:
             rows.extend(got)
-            logging.info(f"  {path.name}: {len(got):,} {chamber} districts")
+            chambers = sorted({r['properties']['house'] for r in got})
+            logging.info(f"  {path.name}: {len(got):,} districts "
+                         f"({', '.join(chambers)})")
 
     if not rows:
         logging.error("Nothing usable was read.")

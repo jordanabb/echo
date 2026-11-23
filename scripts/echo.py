@@ -15,9 +15,10 @@ import argparse
 import sys
 from pathlib import Path
 
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from echo_tools import aws, data, database, deploy, indicators, preflight  # noqa: E402
+from echo_tools import aws, data, database, deploy, export_prod_to_s3, indicators, preflight  # noqa: E402
 from echo_tools.console import Abort, BOLD, NC, bad, detail, say  # noqa: E402
 
 
@@ -107,7 +108,21 @@ def build_parser():
     add('deploy-frontend', "build the SPA, upload to S3 and invalidate CloudFront",
         "The upload uses --delete and the bucket is not versioned, so a bad build\n"
         "is undone by building again rather than by rolling back.")
-
+    
+    export = add('export-prod', "write geographies.csv / results.csv from production and upload to S3",
+                 "Reads the database that .env points at, writes CSVs matching what\n"
+                 "create_national.py produces, checks the row counts, then replaces the\n"
+                 "'clean' copies in S3. The previous copies are kept under <clean>_prev/.\n\n"
+                 "Use --geographies-only or --results-only to export just one file.")
+    export.add_argument('--dry-run', action='store_true', help="show row counts only")
+    export.add_argument('--no-upload', action='store_true',
+                        help="export locally to prod_export/ and leave S3 alone")
+    which = export.add_mutually_exclusive_group()
+    which.add_argument('--geographies-only', action='store_true',
+                       help="export only geographies.csv; leave results.csv alone")
+    which.add_argument('--results-only', action='store_true',
+                       help="export only results.csv; leave geographies.csv alone")
+    
     return parser
 
 
@@ -144,6 +159,11 @@ def dispatch(args):
                                      assume_yes=args.yes)
     if args.command == 'deploy-frontend':
         return deploy.deploy_frontend()
+    if args.command == 'export-prod':
+        only = ('geographies' if args.geographies_only
+                else 'results' if args.results_only else None)
+        return export_prod_to_s3.run(dry_run=args.dry_run, upload=not args.no_upload,
+                                     only=only)
     return 1
 
 

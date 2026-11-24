@@ -77,7 +77,7 @@ CSV_FILE_MAP = {
         {'filename': 'acs_counties.csv', 'id_col': 'GEOID', 'type': 'acs'},
         {'filename': 'ccd_counties.csv', 'id_col': 'GEOID', 'type': 'ccd'},
         {'filename': 'f33_counties.csv', 'id_col': 'GEOID', 'type': 'f33'},
-        {'filename': 'places_counties.csv', 'id_col': 'CountyFIPS', 'type': 'places'},
+        {'filename': 'places_counties.csv', 'id_col': 'GEOID', 'type': 'places'},
         {'filename': 'grad_counties.csv', 'id_col': 'GEOID', 'type': 'edu'},
         {'filename': 'homeless_counties.csv', 'id_col': 'GEOID', 'type': 'edu'},
         {'filename': 'enrolled_race_counties.csv', 'id_col': 'GEOID', 'type': 'enrolled_race'},
@@ -101,13 +101,13 @@ CSV_FILE_MAP = {
         {'filename': 'places_sd.csv', 'id_col': 'NCESID', 'type': 'places'},
         {'filename': 'grad_sd.csv', 'id_col': 'NCESID', 'type': 'edu'},
         {'filename': 'homeless_sd.csv', 'id_col': 'NCESID', 'type': 'edu'},
-        {'filename': 'enrolled_race_sd.csv', 'id_col': 'NC ESID', 'type': 'enrolled_race'},
+        {'filename': 'enrolled_race_sd.csv', 'id_col': 'NCESID', 'type': 'enrolled_race'},
         {'filename': 'saipe_sd.csv', 'id_col': 'NCESID', 'type': 'saipe'},
 
     ],
     'legislative': [
         {'filename': 'acs_leg.csv', 'id_col': 'GEOID', 'type': 'acs'},
-        {'filename': 'ccd_leg.csv', 'id_col': 'GEOID', 'type': 'ccd'},
+        {'filename': 'ccd_leg.csv', 'id_col': 'LEGID', 'type': 'ccd'},
         {'filename': 'f33_leg.csv', 'id_col': 'LEGID', 'type': 'f33'},
         {'filename': 'places_leg.csv', 'id_col': 'LEGID', 'type': 'places'},
         {'filename': 'grad_leg.csv', 'id_col': 'LEGID', 'type': 'edu'},
@@ -117,12 +117,12 @@ CSV_FILE_MAP = {
     ],
     'congressional_district': [
         {'filename': 'acs_cd.csv', 'id_col': 'GEOID', 'type': 'acs'},
-        {'filename': 'ccd_cd.csv', 'id_col': 'GEOID', 'type': 'ccd'},
-        {'filename': 'f33_cd.csv', 'id_col': 'GEOID', 'type': 'f33_raw'},
-        {'filename': 'places_cd.csv', 'id_col': 'CONGID', 'type': 'places'},
-        {'filename': 'grad_cd.csv', 'id_col': 'LEGID', 'type': 'edu'},
-        {'filename': 'homeless_cd.csv', 'id_col': 'LEGID', 'type': 'edu'},
-        {'filename': 'enrolled_race_cd.csv', 'id_col': 'GEOID', 'type': 'enrolled_race'},
+        {'filename': 'ccd_cd.csv', 'id_col': 'CD', 'type': 'ccd'},
+        {'filename': 'f33_cd.csv', 'id_col': 'CD', 'type': 'f33_raw'},
+        {'filename': 'places_cd.csv', 'id_col': 'CD', 'type': 'places'},
+        {'filename': 'grad_cd.csv', 'id_col': 'CD', 'type': 'edu'},
+        {'filename': 'homeless_cd.csv', 'id_col': 'CD', 'type': 'edu'},
+        {'filename': 'enrolled_race_cd.csv', 'id_col': 'CD', 'type': 'enrolled_race'},
         {'filename': 'saipe_cd.csv', 'id_col': 'GEOID', 'type': 'saipe'},
     ],
 }
@@ -160,26 +160,6 @@ CCD_RENAME = {
     "perc_idea": "Students with Disabilities (% Students)",
 }
 
-# F33 columns already use display names — list them for passthrough recognition.
-# These names must match the "name" field in indicator_config.py exactly.
-F33_PASSTHROUGH_COLS = [
-    "Total Enrollment",
-    "Total Revenue ($)",
-    "Federal Revenue ($)",
-    "State Revenue ($)",
-    "Local Revenue ($)",
-    "Local Property Tax Revenue ($)",
-    "Local Property Tax Revenue Per Pupil ($)",
-    "Federal Title I Allocation ($)",
-    "Federal Title III Allocation ($)",
-    "Federal Title VII Allocation ($)",
-    "Federal IDEA Allocation ($)",
-    "Total Revenue Per Pupil ($)",
-    "Federal Revenue Per Pupil ($)",
-    "State Revenue Per Pupil ($)",
-    "Local Revenue Per Pupil ($)",
-]
-
 PLACES_RENAME = {
     "Current_lack_of_health_insurance_among_adults_aged_18-64_years": "Lacking Health Insurance (% Adults)",
     "Obesity_among_adults": "Obesity Rate (% Adults)",
@@ -198,8 +178,6 @@ EDU_RENAME = {
 }
 
 ENROLLED_RACE_RENAME = {
-    "White, including W. Hispanic (% Students)": "White (% Students)",
-    "White (% Students)": "White (% Students)",
     "white_ps": "White (% Students)",
     "black_ps": "Black (% Students)",
     "hispanic_ps": "Latino (% Students)",
@@ -222,10 +200,10 @@ F33_RAW_RENAME = {
     "title3": "Federal Title III Allocation ($)",
     "title7": "Federal Title VII Allocation ($)",
     "IDEA": "Federal IDEA Allocation ($)",
-    "total_rev_pp": "Total Revenue Per Pupil ($)",
-    "fed_rev_pp": "Federal Revenue Per Pupil ($)",
-    "state_rev_pp": "State Revenue Per Pupil ($)",
-    "local_rev_pp": "Local Revenue Per Pupil ($)",
+    "total_pp": "Total Revenue Per Pupil ($)",
+    "fed_pp": "Federal Revenue Per Pupil ($)",
+    "state_pp": "State Revenue Per Pupil ($)",
+    "local_pp": "Local Revenue Per Pupil ($)",
 }
 
 SAIPE_RENAME = {
@@ -234,20 +212,9 @@ SAIPE_RENAME = {
 
 ALL_RENAMES = {**ACS_RENAME, **CCD_RENAME, **PLACES_RENAME, **EDU_RENAME, **ENROLLED_RACE_RENAME, **F33_RAW_RENAME, **SAIPE_RENAME}
 
-# Columns that already use their display name in the source CSVs
-ENROLLED_RACE_PASSTHROUGH_COLS = [
-    "Black (% Students)",
-    "Latino (% Students)",
-    "Asian (% Students)",
-    "Native (% Students)",
-    "Pacific Islander (% Students)",
-    "Two or More Races (% Students)",
-    "Students of Color (%)",
-    "White (% Students)",
-]
 
 # All valid indicator display names (renamed + passthrough)
-ALL_INDICATOR_NAMES = set(ALL_RENAMES.values()) | set(F33_PASSTHROUGH_COLS) | set(ENROLLED_RACE_PASSTHROUGH_COLS)
+ALL_INDICATOR_NAMES = set(ALL_RENAMES.values())
 
 # --- GEOID FORMATTING ---
 def format_geoid(geo_id, geo_level):

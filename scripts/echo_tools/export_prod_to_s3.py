@@ -5,6 +5,7 @@ produces, checks them against the database, then uploads them to the 'clean'
 prefix. Read-only against the database. The previous S3 copies are kept under
 '<clean prefix>_prev/' so they are not pulled by `pull-data clean`.
 """
+import csv
 import os
 import pathlib
 
@@ -28,6 +29,31 @@ EXPORTS = {
         "SELECT COUNT(*) FROM results_data"),
 }
 
+# run geo_id check on the exported files to make sure they are the right width for each level
+EXPECTED_WIDTH = {'county': 5, 'sldu': 5, 'sldl': 5, 'school_district': 7,
+                  'tract': 11, 'congressional_district': 4}
+
+def _check_file_ids(path, name):
+    """Scan the written CSV as plain text; return {level: count} of wrong-width geo_ids."""
+    bad, examples = {}, []
+    with open(path, newline='', encoding='utf-8') as f:
+        reader = csv.reader(f)
+        header = next(reader)
+        i_id, i_level = header.index('geo_id'), header.index('geo_level')
+        for row in reader:
+            width = EXPECTED_WIDTH.get(row[i_level])
+            if width is None or len(row[i_id]) != width:
+                bad[row[i_level]] = bad.get(row[i_level], 0) + 1
+                if len(examples) < 5:
+                    examples.append((row[i_id], row[i_level]))
+    if not bad:
+        ok("{}: every geo_id in the file has the expected width".format(name))
+        return {}
+    warn("{}: malformed geo_ids in the exported file".format(name))
+    for level, n in sorted(bad.items()):
+        detail("{}: {:,} row(s), expected width {}".format(level, n, EXPECTED_WIDTH.get(level, '?')))
+    detail("examples: " + ", ".join("{!r} ({})".format(g, l) for g, l in examples))
+    return bad
 
 def _engine():
     """Build an engine from .env, the same variables the ETL scripts use."""
@@ -56,7 +82,7 @@ def _count_data_rows(path):
     return lines - 1
 
 
-def _export_table(engine, name, query, count_query, out_dir):
+def _export_table(engine, name, query, count_query, out_dir, allow_malformed=False):
     final = out_dir / name
     part = out_dir / (name + '.part')
 
@@ -76,10 +102,18 @@ def _export_table(engine, name, query, count_query, out_dir):
             name, actual, expected),
             "A text field containing a line break would cause this. Tell whoever "
             "maintains the script; the export is not safe to use as-is.")
+
+    bad = _check_file_ids(part, name)
+    if bad and not allow_malformed:
+        part.unlink()
+        die("{}: {:,} malformed geo_id(s) in the export. Nothing was kept.".format(
+            name, sum(bad.values())),
+            "Check the database with: SELECT geo_id FROM geographies LIMIT 5. "
+            "Pass --allow-malformed to export anyway.")
+
     os.replace(part, final)    # only a verified file ever gets the real name
     ok("{}: verified {:,} rows, {:.2f} GB".format(name, actual, final.stat().st_size / 1024 ** 3))
     return final
-
 
 def _remote_size(config, key):
     """Size of one object in S3, or None."""
